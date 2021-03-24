@@ -93,25 +93,27 @@ make_tcga_clinical_annotation <- function(tcga_maf_obj, oncomat_to_match=NULL) {
   
 }
 
-tcga_clinical_colors <- function(tcga_clin_data) {
+tcga_clinical_colors <- function(tcga_clin_data,
+                                 preset_columns=c("Tumor_Sample_Barcode","ajcc_pathologic_stage","age_at_diagnosis","gender","race","vital_status","tissue_or_organ_of_origin")
+                                 ) {
   require(maftools)
   require(RColorBrewer)
   require(ComplexHeatmap)
   require(circlize)
   
-  preset_columns <- c("Tumor_Sample_Barcode","ajcc_pathologic_stage","age_at_diagnosis","gender","race","vital_status","tissue_or_organ_of_origin")
-  
   found_columns <- intersect(colnames(tcga_clin_data), preset_columns)
   if ( ! "Tumor_Sample_Barcode" %in% found_columns ) {
     stop("Clinical data must contain a 'Tumor_Sample_Barcode' column.")
   }
-  if (length(found_columns) < 2) {
+  found_columns <- setdiff(found_columns, c("Tumor_Sample_Barcode"))
+  if (length(found_columns) < 1) {
     stop(paste0("Clinical data must contain at least one of the columns: ", paste0(preset_columns, collapse = ", ")))
   }
   
   anno_data <- tcga_clin_data[,..found_columns]
   anno_data$Dataset <- paste0(unique(tcga_clin_data$disease), collapse=",")
   
+  # browser()
   color_list <- lapply(found_columns, function(featurename) {
     
     return_val=NULL
@@ -119,6 +121,7 @@ tcga_clinical_colors <- function(tcga_clin_data) {
            "ajcc_pathologic_stage"={
               stages=sort(unique(anno_data$ajcc_pathologic_stage))
               return_val <- setNames(brewer.pal(n = length(stages), name = "Reds"), stages)
+              return_val <- return_val[!is.na(names(return_val))]
            },
            "age_at_diagnosis"={
              anno_data$age_at_diagnosis <- as.numeric(as.character(anno_data$age_at_diagnosis))
@@ -129,20 +132,28 @@ tcga_clinical_colors <- function(tcga_clin_data) {
              return_val <- colorRamp2(age_breaks, age_color_vals)
            },
            "gender"={
-             c(female="hotpink", male="cornflowerblue")
+             return_val <- c(female="hotpink", male="cornflowerblue")
            },
            "race"={
              races=sort(unique(anno_data$race))
              return_val <- setNames(rev(brewer.pal(n = length(races), name = "Set1")), races)
+             return_val <- return_val[!is.na(names(return_val))]
            },
            "vital_status"={
-             statuses=sort(unique(anno_data$vital_status))
+             # statuses=sort(unique(anno_data$vital_status))
              return_val <- c(Alive="darkgreen",Dead="darkred")
+           },
+           "tissue_or_organ_of_origin"={
+             tissues=sort(unique(anno_data$tissue_or_organ_of_origin))
+             return_val <- setNames(brewer.pal(n = length(tissues), name = "Dark2"), tissues)
+             return_val <- return_val[!is.na(names(return_val))]
+           },{
+             warning(paste0("'",featurename,"' not found in columns of clinical data provided."))
            }
          )
     return(return_val)
   })
-  
+  names(color_list) <- found_columns
   return(color_list)
 }
 

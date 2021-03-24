@@ -129,6 +129,7 @@ filter_maf_tbl <- function(maftbl,
   require(dplyr)
   df <- as_tibble(maftbl)
   maf_df.raw <- df[df$Hugo_Symbol != "Hugo_Symbol",]
+  maf_df.raw <- maf_df.raw[!df$Hugo_Symbol %in% flag_genes,]
   
   if ("FILTER" %in% colnames(maf_df.raw)) {
     if (!is.null(grep_vcf_filter_col)) {
@@ -136,7 +137,7 @@ filter_maf_tbl <- function(maftbl,
       maf_df.raw <- maf_df.raw[grepl(grep_vcf_filter_col,maf_df.raw$FILTER),]
     }
   } else {
-    warning("FILTER column not found; skipping...")
+    message("FILTER column not found; skipping...")
   }
   
   #Variant Classification with High/Moderate variant consequences. http://asia.ensembl.org/Help/Glossary?id=535
@@ -149,22 +150,35 @@ filter_maf_tbl <- function(maftbl,
       maf_df.raw <- maf_df.raw[maf_df.raw$Variant_Classification %in% vc.nonSilent,]
     }
   } else {
-    warning("Variant_Classification column not found; skipping...")
+    message("Variant_Classification column not found; skipping...")
   }
   
-  if (!"tumor_freq" %in% colnames(maf_df.raw)) {
-    if (! all(c("t_alt_count","t_depth") %in% colnames(maf_df.raw))) {
-      stop("Can't find t_alt_count or t_depth columns")
-    }
-    maf_df.raw$tumor_freq <- as.numeric(maf_df.raw$t_alt_count)/as.numeric(maf_df.raw$t_depth)
-  }  
-  if (!"norm_freq" %in% colnames(maf_df.raw)) {
-    if (! all(c("n_alt_count","n_depth") %in% colnames(maf_df.raw))) {
-      maf_df.raw$norm_freq <- rep(0, nrow(maf_df.raw))
-    } else {
-      maf_df.raw$norm_freq <- as.numeric(maf_df.raw$n_alt_count)/as.numeric(maf_df.raw$n_depth)
-    }
-  }
+  # if (!"tumor_freq" %in% colnames(maf_df.raw)) {
+  #   # if (! all(c("t_alt_count","t_depth") %in% colnames(maf_df.raw))) {
+  #     # stop("Can't find t_alt_count or t_depth columns")
+  #   # }
+  #   if (! "t_alt_count" %in% colnames(maf_df.raw)) {
+  #     maf_df.raw$t_alt_count <- NA
+  #   }
+  #   if (! "t_alt_count" %in% colnames(maf_df.raw)) {
+  #     maf_df.raw$t_depth <- NA
+  #   }
+  #   maf_df.raw$tumor_freq <- as.numeric(maf_df.raw$t_alt_count)/as.numeric(maf_df.raw$t_depth)
+  # }  
+  # if (!"norm_freq" %in% colnames(maf_df.raw)) {
+  #   # if (! all(c("n_alt_count","n_depth") %in% colnames(maf_df.raw))) {
+  #   #   maf_df.raw$norm_freq <- rep(0, nrow(maf_df.raw))
+  #   # } else {
+  #   #   maf_df.raw$norm_freq <- as.numeric(maf_df.raw$n_alt_count)/as.numeric(maf_df.raw$n_depth)
+  #   # }
+  #   if (! "n_alt_count" %in% colnames(maf_df.raw)) {
+  #     maf_df.raw$t_alt_count <- NA
+  #   }
+  #   if (! "n_depth" %in% colnames(maf_df.raw)) {
+  #     maf_df.raw$t_depth <- NA
+  #   }
+  #   maf_df.raw$norm_freq <- as.numeric(maf_df.raw$n_alt_count)/as.numeric(maf_df.raw$n_depth)
+  # }
   
   
   maf_num_filter_columns <- list("t_alt_count"=c(min=t_alt_min, max=t_alt_max),
@@ -177,23 +191,26 @@ filter_maf_tbl <- function(maftbl,
                                  "AF"=c(min=AF_min, max=AF_max),
                                  "ExAC_AF"=c(min=ExAC_AF_min, max=ExAC_AF_max)
   )
-  
+  # browser()
   numfilter_columns <- names(maf_num_filter_columns)[names(maf_num_filter_columns) %in% colnames(maf_df.raw)]
-  notfound <- setdiff(numfilter_columns, names(maf_num_filter_columns))
+  notfound <- setdiff(names(maf_num_filter_columns), numfilter_columns)
   if (length(notfound) > 0 ) {
-    warning(paste0("Couldn't find these columns; skipping filtering for these: ", paste0(notfound, collapse=",")))
+    message(paste0("Couldn't find these columns; skipping filtering for these: ", paste0(notfound, collapse=",")))
   }
   
-  all_num_filters <- lapply(numfilter_columns, function(col_name) {
-    currdata <- as.numeric(pull(maf_df.raw,col_name))
-    currdata[is.na(currdata)] <- 0
-    filter_vec <- currdata >= maf_num_filter_columns[[col_name]]["min"] & currdata <= maf_num_filter_columns[[col_name]]["max"]
-    return(filter_vec)
-  })
-  # browser()
-  final_num_filters <- Reduce("&", all_num_filters)
-  
-  return_df <- maf_df.raw[final_num_filters,]
+  return_df <- maf_df.raw
+  if (length(numfilter_columns)>0) {
+    all_num_filters <- lapply(numfilter_columns, function(col_name) {
+      currdata <- as.numeric(pull(maf_df.raw,col_name))
+      currdata[is.na(currdata)] <- 0
+      filter_vec <- currdata >= maf_num_filter_columns[[col_name]]["min"] & currdata <= maf_num_filter_columns[[col_name]]["max"]
+      return(filter_vec)
+    })
+    # browser()
+    final_num_filters <- Reduce("&", all_num_filters)
+    
+    return_df <- maf_df.raw[final_num_filters,]
+  }
   return(return_df)
 }
 
@@ -223,7 +240,8 @@ filter_maf_chunked <- function(maf_file, chunk_lines=10000, save_name=NULL,...) 
 
 make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_threshold=T,
                           oncomat_only=F,
-                          clin_data=NULL, clin_data_colors=NULL) {
+                          clin_data=NULL, clin_data_colors=NULL,
+                          savename=NULL) {
   require(ComplexHeatmap)
   ### Read in MAF file
   # maf.filtered <- read.maf(maf_file)
@@ -340,15 +358,25 @@ make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_t
                                  left_annotation = left_ha,
                                  show_column_names = show_sample_names)#,
   
-  ### Return the oncoplot
-  return(onco_base_default)
+  if ( ! is.null(savename) ) {
+    # save_name <- paste0(out_dir,"/oncoplot.",cohort_freq_thresh,".pdf")
+    onco_height=max(round(0.15*nrow(oncomat.plot),0),6)
+    onco_width=onco_height*0.75
+    pdf(file = savename,height=onco_height,width=onco_width)
+    draw(onco_base_default)
+    dev.off()
+  }
+  
+  ### Return the oncoplot (if function is pointed to a variable)
+  invisible(onco_base_default)
 }
 
 
 make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1,
                           use_clinvar_anno=F, title_text="",
                           genes_to_plot=NULL, include_all=F,
-                          custom_column_order=NULL, full_output=F) {
+                          custom_column_order=NULL, full_output=F,
+                          savename=NULL) {
   
   ### Read in MAF file
   # maf.filtered <- read.maf(maf_file)
@@ -461,7 +489,7 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1,
   ### Set the height of the plot based on number of genes
   onco_height=NULL
   if (is.null(onco_height)) {
-    onco_height=max(round(0.2*nrow(oncomat.plot),0),5)
+    onco_height=max(round(0.2*nrow(oncomat.plot),0),6)
   }
   
   ### Make the mutation type names prettier by removing the underscore
@@ -521,12 +549,17 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1,
   } else {
     return_val <- onco_base_default
   }
-  return(return_val)
-  # save_name <- paste0(out_dir,"/oncoplot.",cohort_freq_thresh,".pdf")
-  # onco_width=10
-  # pdf(file = save_name,height=onco_height,width=onco_width)
-  # draw(onco_base_default)
-  # dev.off()
+  
+  if ( ! is.null(savename) ) {
+    # save_name <- paste0(out_dir,"/oncoplot.",cohort_freq_thresh,".pdf")
+    onco_height=max(round(0.15*nrow(oncomat.plot),0),6)
+    onco_width=onco_height*0.75
+    pdf(file = savename,height=onco_height,width=onco_width)
+    draw(onco_base_default)
+    dev.off()
+  }
+  
+  invisible(return_val)
 }
 
 
@@ -702,7 +735,7 @@ make_overlap_plot <- function(mymaf, use_silent_mutations=F,
                               savename="overlap_plot.pdf",
                               savewidth=8, saveheight=8) {
   
-  # browser()
+  require(dplyr)
   mafdata <- mymaf@data
   if (use_silent_mutations) {
     mafdata <- rbind(mafdata, mymaf@maf.silent)
@@ -741,18 +774,19 @@ make_overlap_plot <- function(mymaf, use_silent_mutations=F,
   
   pdf(savename, width=savewidth, height=saveheight)
   if ("heatmap" %in% plotType) {
-    library(pheatmap)
-    pheatmap(hm_data,cluster_rows = T, cluster_cols = T,
-                   clustering_method = "complete",
-                   # annotation_colors = hm_anno_colors,
-                   # annotation_col = hm_anno_data,annotation_row = hm_anno_data,
-                   main = "Hierarchically Clustered")
+    require(ComplexHeatmap)
+    # pheatmap(hm_data,cluster_rows = T, cluster_cols = T,
+    #                clustering_method = "complete",
+    #                main = "Hierarchically Clustered")
+    myhm <- Heatmap(hm_data,
+            cluster_rows = T, cluster_columns = T,
+            column_title = paste0("Number of ",ifelse(summarize_by=="gene","mutated genes","variants")," in common between samples (pair-wise)")
+            )
+    draw(myhm)
   }
   
-  # pheatmap(log2(pw_combinations+1e-6),cluster_rows = F, cluster_cols = F)
-  # dev.off()
-  
   if ("ribbon" %in% plotType) {
+    require(circlize)
     count_clustering <- hclust(dist(pw_combinations), method = "complete")
     cluster_order <- count_clustering$labels[count_clustering$order]
     
@@ -769,6 +803,7 @@ make_overlap_plot <- function(mymaf, use_silent_mutations=F,
     }, bg.border = NA) # here set bg.border to NA is important
   }
   dev.off()
+  invisible(NULL)
 }
 
 
@@ -1040,6 +1075,130 @@ createOncoMatrix = function(m, g = NULL, chatty = TRUE, add_missing = FALSE){
   }
 }
 
+### Cretaes matrix for oncoplot from maf file annotated with ClinVar pathogenicity
+### Adapted from maftools: https://github.com/PoisonAlien/maftools/blob/master/R/oncomatrix.R
+### Modified to capture ClinVar annotations
+createOncoMatrix_CLINSIG = function(m, g = NULL, chatty = TRUE, add_missing = FALSE){
+  
+  if(is.null(g)){
+    stop("Please provde atleast two genes!")
+  }
+  
+  subMaf = subsetMaf(maf = m, genes = g, includeSyn = FALSE, mafObj = FALSE)
+  
+  if(nrow(subMaf) == 0){
+    if(add_missing){
+      numericMatrix = matrix(data = 0, nrow = length(g), ncol = length(levels(getSampleSummary(x = m)[,Tumor_Sample_Barcode])))
+      rownames(numericMatrix) = g
+      colnames(numericMatrix) = levels(getSampleSummary(x = m)[,Tumor_Sample_Barcode])
+      
+      oncoMatrix = matrix(data = "", nrow = length(g), ncol = length(levels(getSampleSummary(x = m)[,Tumor_Sample_Barcode])))
+      rownames(oncoMatrix) = g
+      colnames(oncoMatrix) = levels(getSampleSummary(x = m)[,Tumor_Sample_Barcode])
+      
+      vc = c("")
+      names(vc) = 0
+      
+      return(list(oncoMatrix = oncoMatrix, numericMatrix = numericMatrix, vc = vc))
+    }else{
+      return(NULL)
+    }
+  }
+  
+  if(add_missing){
+    subMaf[, Hugo_Symbol := factor(x = Hugo_Symbol, levels = g)]
+  }
+  # browser()
+  # mafdata <- data.table::data.table(subMaf[,.(Hugo_Symbol, Tumor_Sample_Barcode, CLIN_SIG, Variant_Classification)] %>% 
+  #                   mutate(oncomat_label=paste0(ifelse(length(unique(Variant_Classification))>1, "Multi_Hit",unique(Variant_Classification)), 
+  #                                               ifelse(grepl("pathogenic",CLIN_SIG),";pathogenic",""))))
+  mafdata <- data.table::data.table(
+    
+    subMaf[,.(Hugo_Symbol, Tumor_Sample_Barcode, CLIN_SIG, Variant_Classification)] %>%
+      group_by(Hugo_Symbol, Tumor_Sample_Barcode) %>%
+      mutate(oncomat_label=paste0(ifelse(length(unique(as.character(Variant_Classification)))>1, "Multi_Hit",unique(as.character(Variant_Classification))),
+                                  # mutate(oncomat_label=paste0(length(unique(as.character(Variant_Classification))),
+                                  ifelse(grepl("pathogenic",CLIN_SIG),";Pathogenic",
+                                         ifelse(grepl("uncertain",CLIN_SIG), ";VUS",""))))
+  )
+  oncomat = data.table::dcast(data = mafdata, formula = Hugo_Symbol ~ Tumor_Sample_Barcode, value.var="oncomat_label", fill='', drop=F,fun.aggregate=unique)
+  
+  
+  #convert to matrix
+  data.table::setDF(oncomat)
+  rownames(oncomat) = oncomat$Hugo_Symbol
+  oncomat = as.matrix(oncomat[,-1, drop = FALSE])
+  
+  variant.classes = as.character(unique(subMaf[,Variant_Classification]))
+  variant.classes = c('',variant.classes, 'Multi_Hit')
+  names(variant.classes) = 0:(length(variant.classes)-1)
+  
+  #Complex variant classes will be assigned a single integer.
+  vc.onc = unique(unlist(apply(oncomat, 2, unique)))
+  vc.onc = vc.onc[!vc.onc %in% names(variant.classes)]
+  names(vc.onc) = rep(as.character(as.numeric(names(variant.classes)[length(variant.classes)])+1), length(vc.onc))
+  variant.classes2 = c(variant.classes, vc.onc)
+  
+  oncomat.copy <- oncomat
+  #Make a numeric coded matrix
+  for(i in 1:length(variant.classes2)){
+    oncomat[oncomat == variant.classes2[i]] = names(variant.classes2)[i]
+  }
+  
+  #If maf has only one gene
+  if(nrow(oncomat) == 1){
+    mdf  = t(matrix(as.numeric(oncomat)))
+    rownames(mdf) = rownames(oncomat)
+    colnames(mdf) = colnames(oncomat)
+    return(list(oncoMatrix = oncomat.copy, numericMatrix = mdf, vc = variant.classes))
+  }
+  
+  #convert from character to numeric
+  mdf = as.matrix(apply(oncomat, 2, function(x) as.numeric(as.character(x))))
+  rownames(mdf) = rownames(oncomat.copy)
+  
+  
+  #If MAF file contains a single sample, simple sorting is enuf.
+  if(ncol(mdf) == 1){
+    sampleId = colnames(mdf)
+    mdf = as.matrix(mdf[order(mdf, decreasing = TRUE),])
+    colnames(mdf) = sampleId
+    
+    oncomat.copy = as.matrix(oncomat.copy[rownames(mdf),])
+    colnames(oncomat.copy) = sampleId
+    
+    return(list(oncoMatrix = oncomat.copy, numericMatrix = mdf, vc = variant.classes))
+  } else{
+    #Sort by rows as well columns if >1 samples present in MAF
+    #Add total variants per gene
+    mdf = cbind(mdf, variants = apply(mdf, 1, function(x) {
+      length(x[x != "0"])
+    }))
+    #Sort by total variants
+    mdf = mdf[order(mdf[, ncol(mdf)], decreasing = TRUE), ]
+    #colnames(mdf) = gsub(pattern = "^X", replacement = "", colnames(mdf))
+    nMut = mdf[, ncol(mdf)]
+    
+    mdf = mdf[, -ncol(mdf)]
+    
+    mdf.temp.copy = mdf #temp copy of original unsorted numeric coded matrix
+    
+    mdf[mdf != 0] = 1 #replacing all non-zero integers with 1 improves sorting (& grouping)
+    tmdf = t(mdf) #transposematrix
+    mdf = t(tmdf[do.call(order, c(as.list(as.data.frame(tmdf)), decreasing = TRUE)), ]) #sort
+    
+    mdf.temp.copy = mdf.temp.copy[rownames(mdf),] #organise original matrix into sorted matrix
+    mdf.temp.copy = mdf.temp.copy[,colnames(mdf)]
+    mdf = mdf.temp.copy
+    
+    #organise original character matrix into sorted matrix
+    oncomat.copy <- oncomat.copy[,colnames(mdf)]
+    oncomat.copy <- oncomat.copy[rownames(mdf),]
+    
+    return(list(oncoMatrix = oncomat.copy, numericMatrix = mdf, vc = variant.classes))
+  }
+}
+
 make_variant_table <- function(maf.filter, use_syn=F, extra_cols=c()) {
   
   output_data <- maf.filter@data
@@ -1142,167 +1301,12 @@ compute_exome_coverage <- function(targets_bed_file, out_file=NULL) {
 
 
 
-make_mut_signature_heatmap <- function(mymaf,use_silent_mutations=F, clinVarNames = NULL, 
-                                       data_dir="data", full_output=F,
-                                       genome_build="hg19",
-                                       clin_data=NULL, clin_data_colors=NULL,
-                                       progress_func=NULL) {
-  require(maftools)
-  require(MutationalPatterns)
-  require(circlize)
-  require(ComplexHeatmap)
-  
-  genome_build_res <- detect_maf_genome(mymaf)
-  genome_build <- genome_build_res[[1]]
-  genome_package <- genome_build_res[[3]]
-  # genome_package=paste0("BSgenome.Hsapiens.UCSC.",genome_build)
-  require(genome_package, quietly = TRUE, character.only = T)
-  
-  # mymaf <- all_mafs[[1]]
-  if (is.function(progress_func)) {
-    progress_func(value=0, detail = "Computing signatures")
-  }
-  
-  # print(paste0("add chr: ",genome_build_res[[2]]))
-  prefix_value=ifelse(genome_build_res[[2]],"chr","")
-  # add_prefix=genome_build!="hg19"
-  
-  # print(date())
-  print(paste0("build: ",genome_build))
-  # print(paste0("prefix: ",prefix_value))
-  # print(add_prefix)
-  print(unique(mymaf@data$Chromosome))
-  # print(unique(mymaf@data$Chromosome))
-  
-  tnm = trinucleotideMatrix(maf = mymaf,
-                            ref_genome = genome_package,
-                            # add = add_prefix,
-                            prefix = prefix_value,
-                            useSyn = use_silent_mutations)
-  mut_mat = t(tnm$nmf_matrix)
-  
-  # mut_mat <- data.frame(Tumor_Sample_Barcode=rownames(mut_mat), mut_mat, check.names = F)
-  # mut_mat <- merge.data.frame(sample_info.exome, mut_mat, by="Tumor_Sample_Barcode")
-  # write.table(mut_mat, file = paste0(figures_folder,"mutation_burden.data.txt"), sep="\t", quote=F,row.names = F)
-  
-  
-  sp_url <- file.path(data_dir,"cosmic","sigProfiler_exome_SBS_signatures.csv")
-  cosmic_signatures = read.table(sp_url, sep = ",", header = TRUE, stringsAsFactors = F)
-  cosmic_signatures$Somatic.Mutation.Type <- paste0(substr(cosmic_signatures$SubType, 1, 1),
-                                                    "[",cosmic_signatures$Type, "]",
-                                                    substr(cosmic_signatures$SubType, 3, 3))
-  
-  
-  
-  # Match the order of the mutation types to MutationalPatterns standard
-  new_order = match(row.names(mut_mat), cosmic_signatures$Somatic.Mutation.Type)
-  # Reorder cancer signatures dataframe
-  cosmic_signatures = cosmic_signatures[as.vector(new_order),]
-  # Add trinucletiode changes names as row.names
-  row.names(cosmic_signatures) = cosmic_signatures$Somatic.Mutation.Type
-  # Keep only 96 contributions of the signatures in matrix
-  cosmic_signatures = as.matrix(cosmic_signatures[,grep("SBS*", colnames(cosmic_signatures))])
-  
-  hclust_cosmic = cluster_signatures(cosmic_signatures, method = "average")
-  # store signatures in new order
-  cosmic_order = colnames(cosmic_signatures)[hclust_cosmic$order]
-  # plot(hclust_cosmic)
-  
-  if (is.function(progress_func)) {
-    progress_func(value=50, detail = "Computing similarity to COSMIC...")
-  }
-  cos_sim_samples_signatures = cos_sim_matrix(mut_mat, cosmic_signatures)
-  
-  # fit_res <- fit_to_signatures(mut_mat, cosmic_signatures)
-  
-  # data_dir="data"
-  etio_data_file = file.path(data_dir, "cosmic","COSMIC_signature_etiology.xlsx")
-  etiology_data_raw <- read.xlsx(etio_data_file, sheet="final categories")
-  # etiology_data <- as.character(etiology_data_raw$CATEGORY)
-  etiology_data <- data.frame(Etiology=etiology_data_raw$CATEGORY, row.names=etiology_data_raw$signature)
-  # names(etiology_data) <- etiology_data_raw$signature
-  etiology_colors <-  list(Etiology=c("APOBEC" = "#fce116",
-                                      "Defective DNA Mismatch Repair" = "#31A354",
-                                      "Defective DNA Repair" = "#A1D99B",
-                                      "Exonuclease Domain" = "#E5F5E0",
-                                      "Exposure to Alfatoxin" = "#DE2D26",
-                                      "Exposure to Aristolochic Acid" = "#FC9272",
-                                      "Exposure to Haloalkanes" = "#FEE0D2",
-                                      "Tobacco - Chewing" = "#6d3617",
-                                      "Tobacco - Smoking" = "#a85423",
-                                      "Tobacco - Smoking Associated" = "#d87841",
-                                      "Prior Therapy - Alkylating Agents" = "#2171B5",
-                                      "Prior Therapy - Platinum Drugs" = "#6BAED6",
-                                      "Prior Therapy - Immunosuppression" = "#BDD7E7",
-                                      "Prior Therapy Associated" = "#EFF3FF",
-                                      "ROS Damage" = "#BCBDDC",
-                                      "UV Light" = "#756BB1",
-                                      "UV Light Associated" = "#a29bca",
-                                      "Unknown" = "grey70",
-                                      "Possible Sequencing Artifact" = "grey50")
-  )
-  
-  plot_matrix <- t(cos_sim_samples_signatures)
-  
-  if (is.function(progress_func)) {
-    progress_func(value=80, detail = "Making heatmap")
-  }
-  
-  # browser()
-  rowOrder=order(etiology_data)
-  etiology_data <- etiology_data[rowOrder,1,drop=F]
-  mycolors <- etiology_colors
-  signature_anno <- rowAnnotation(df=etiology_data, 
-                                  name="Signature Anno", col=etiology_colors, show_annotation_name = FALSE)
-  
-  plot_matrix <- plot_matrix[match(rownames(etiology_data),rownames(plot_matrix)),]
-  
-  myanno=NULL
-  if (!is.null(clin_data)) {
-    
-    myanno <- make_column_annotation(clin_data,colnames(plot_matrix), clin_data_colors)
-    # print(myanno)
-  }
-  
-  myHM <- Heatmap(plot_matrix, 
-                  col=colorRamp2(seq(min(plot_matrix), max(plot_matrix), length.out = 20),colorRampPalette(brewer.pal(9, "BuGn"))(20)),
-                  left_annotation = signature_anno,
-                  bottom_annotation = myanno,
-                  cluster_rows = F, row_order = rowOrder,
-                  clustering_method_rows = "median",
-                  clustering_method_columns = "median",
-                  heatmap_height = unit(6, "inches"),
-                  heatmap_legend_param = list(
-                    # at = c(-2, 0, 2),
-                    # labels = c("low", "zero", "high"),
-                    title = "Cosine Similarity",
-                    # legend_height = unit(4, "cm"),
-                    legend_direction = "horizontal"
-                  ),
-                  show_row_names=T, row_names_gp = gpar(fontsize = 5),
-                  show_column_names = F)
-  
-  if (full_output) {
-    output_list <- list(plot_matrix=plot_matrix,
-                        signature_annotations=signature_anno,
-                        etiology_data=etiology_data, 
-                        heatmap_obj=myHM)
-    return(output_list)
-  } else {
-    return(myHM)
-  }
-  
-}
-
-
-
-
 ### Define colors for mutation types
 mutation_colors <- c(Nonsense_Mutation="#ad7aff",Missense_Mutation="#377EB8",Frame_Shift_Del="#4DAF4A",
          In_Frame_Ins="#ff008c",Splice_Site="#FF7F00",Multi_Hit="#FFFF33",Frame_Shift_Ins="#A65628",
          In_Frame_Del="#f781bf",Translation_Start_Site="#400085",Nonstop_Mutation="#b68dfc",
          Amp="green2",Del="darkred",
-         no_variants="#d6d6d6")
+         no_variants="#d6d6d6", Pathogenic="black",VUS="grey50")
 names(mutation_colors) <- gsub("_"," ",names(mutation_colors))
 ### List defining functions for color and shape of cells in oncoplot
 alter_fun = list(
@@ -1366,6 +1370,22 @@ alter_fun = list(
     grid.rect(x, y, w-unit(0.5, "mm"), h-unit(0.5, "mm"),
               # gp = gpar(fill = "#e0e0e0", col = NA))
               gp = gpar(fill = "#CCCCCC", col = NA))
+  },
+  "Pathogenic" = function(x, y, w, h) {
+    # grid.points(x, y, pch = 18, size=w, gp=gpar(col=col["pathogenic"]))
+    # grid.rect(x, y, w*0.7, h*0.2,
+    #           gp = gpar(fill = col["pathogenic"], col = NA))
+    # grid.rect(x, y, w*0.1, h*0.7,
+    #           gp = gpar(fill = col["pathogenic"], col = NA))
+    grid.rect(x, y, w*0.8, h*0.8,
+              gp = gpar(col = mutation_colors["Pathogenic"], fill = NA, lwd=5))
+  },
+  "VUS" = function(x, y, w, h) {
+    # grid.points(x, y, pch = 3, size=w,gp=gpar(col=col["VUS"], lwd=3))
+    # grid.rect(x, y, w*0.2, h-unit(0.5, "mm"),
+    #           gp = gpar(fill = col["VUS"], col = NA))
+    grid.rect(x, y, w*0.8, h*0.8,
+              gp = gpar(col = mutation_colors["VUS"], fill = NA, lwd=5))
   }
 )
 

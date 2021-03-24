@@ -532,6 +532,7 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1,
 
 make_burden_plot <- function(maf.filtered, plotType=NULL, mb_covered=NULL, save_data_to_file=NULL) {
   
+  require(dplyr)
   num_var_data <- maf.filtered@variants.per.sample
   colnames(num_var_data) <- c("Tumor_Sample_Barcode","Variants_filtered")
   num_var_data$mut_burden_count <- num_var_data$Variants_filtered
@@ -895,7 +896,7 @@ detect_maf_genome <- function(maf) {
     return(NA)
   }
   
-  my_genome = unique(maf@data$NCBI_Build)
+  my_genome = paste0("GRCh",gsub("GRCh","",unique(maf@data$NCBI_Build)))
   if (length(my_genome) > 1) {
     warning("Multiple genomes listed in MAF obj. Trying the first one")
     my_genome <- my_genome[1]

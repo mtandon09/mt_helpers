@@ -1,51 +1,59 @@
 
 load_cosmic_data <- function(signatures_file=file.path("~","Documents","helper_functions","cosmic_data","COSMIC_Mutational_Signatures_v3.1.xlsx"),
+                             signature_type="SBS",
                              etio_data_xlsx=file.path("~","Documents","helper_functions","cosmic_data","COSMIC_signature_etiology.xlsx")) {
   
   require(openxlsx)
   # signatures_csv <- file.path("data","cosmic","sigProfiler_exome_SBS_signatures.csv")
   # cosmic_signatures = read.table(signatures_csv, sep = ",", header = TRUE, stringsAsFactors = F)
   if (! file.exists(signatures_file)) {stop("Can't find signatures file.")}
-  if (! file.exists(etio_data_xlsx)) {stop("Can't find signatures etiology file.")}
-  cosmic_signatures = read.xlsx(signatures_file, sheet=1)
-  cosmic_signatures$Somatic.Mutation.Type <- paste0(substr(cosmic_signatures$Subtype, 1, 1),
-                                                    "[",cosmic_signatures$Type, "]",
-                                                    substr(cosmic_signatures$Subtype, 3, 3))
-  
-  # etio_data_xlsx = "data/cosmic/COSMIC_signature_etiology.xlsx"
-  etiology_data_raw <- read.xlsx(etio_data_xlsx, sheet=1)
-  etiology_data <- data.frame(Etiology=etiology_data_raw$Category_specific,
-                              Etiology_category = etiology_data_raw$Category_broad,
-                              row.names=etiology_data_raw$signature,
+  cosmic_signatures = read.xlsx(signatures_file, sheet=paste0(signature_type,"_GRCh37"))
+  if (signature_type=="SBS") {
+    cosmic_signatures$Somatic.Mutation.Type <- paste0(substr(cosmic_signatures$Subtype, 1, 1),
+                                                      "[",cosmic_signatures$Type, "]",
+                                                      substr(cosmic_signatures$Subtype, 3, 3))
+  } else {
+    cosmic_signatures$Somatic.Mutation.Type <- cosmic_signatures$Type
+  }
+  etiology_data <- data.frame(Etiology=NA,
+                              Etiology_category = NA,
+                              row.names=c(),
                               stringsAsFactors = F)
-  
-  
-  categories <- sort(unique(etiology_data$Etiology_category))
-  library(ggsci)
-  # category_colors <- setNames(pal_rickandmorty((palette = c("schwifty")))(length(categories)), categories)
-  category_colors <- setNames(pal_aaas((palette = c("default")))(length(categories)), categories)
-  # category_colors <- setNames(pal_d3((palette = c("category10")))(length(categories)), categories)
-  # category_colors <- setNames(pal_futurama((palette = c("planetexpress")))(length(categories)), categories)
-  # library(ggthemes)
-  # category_colors <- setNames(gdocs_pal()(length(categories)), categories)
-  # category_colors <- setNames(calc_pal()(length(categories)), categories)
-  
-  # mycat=categories[1]
-  etiology_colors <- list(Etiology=unlist(lapply(categories, function(mycat) {
-    subcats <- unique(etiology_data$Etiology[etiology_data$Etiology_category==mycat])
-    catcolor=category_colors[mycat]
-    myrgb <- colorRamp(c(catcolor, "white"))(0:length(subcats)/length(subcats))[1:(length(subcats)), , drop=F]
-    rownames(myrgb) <- subcats
-    hexcolor <- apply(myrgb, 1, function(x) {rgb(x[1], x[2], x[3], maxColorValue = 255)})
-    return(hexcolor)
-  })))
-  
-  
-  rowOrder=order(etiology_data$Etiology_category)
-  etiology_data <- etiology_data[rowOrder, ,drop=F]
-  etiology_data$annotation_color <- etiology_colors$Etiology[match(etiology_data$Etiology, names(etiology_colors$Etiology))]
-  etiology_data$category_color <- category_colors[match(etiology_data$Etiology_category, names(category_colors))]
-  
+  if (file.exists(etio_data_xlsx)) {
+    if (signature_type %in% getSheetNames(etio_data_xlsx)) {
+      etiology_data_raw <- read.xlsx(etio_data_xlsx, sheet=1)
+      etiology_data <- data.frame(Etiology=etiology_data_raw$Category_specific,
+                                  Etiology_category = etiology_data_raw$Category_broad,
+                                  row.names=etiology_data_raw$signature,
+                                  stringsAsFactors = F)
+      
+      categories <- sort(unique(etiology_data$Etiology_category))
+      library(ggsci)
+      # category_colors <- setNames(pal_rickandmorty((palette = c("schwifty")))(length(categories)), categories)
+      category_colors <- setNames(pal_aaas((palette = c("default")))(length(categories)), categories)
+      # category_colors <- setNames(pal_d3((palette = c("category10")))(length(categories)), categories)
+      # category_colors <- setNames(pal_futurama((palette = c("planetexpress")))(length(categories)), categories)
+      # library(ggthemes)
+      # category_colors <- setNames(gdocs_pal()(length(categories)), categories)
+      # category_colors <- setNames(calc_pal()(length(categories)), categories)
+      
+      # mycat=categories[1]
+      etiology_colors <- list(Etiology=unlist(lapply(categories, function(mycat) {
+        subcats <- unique(etiology_data$Etiology[etiology_data$Etiology_category==mycat])
+        catcolor=category_colors[mycat]
+        myrgb <- colorRamp(c(catcolor, "white"))(0:length(subcats)/length(subcats))[1:(length(subcats)), , drop=F]
+        rownames(myrgb) <- subcats
+        hexcolor <- apply(myrgb, 1, function(x) {rgb(x[1], x[2], x[3], maxColorValue = 255)})
+        return(hexcolor)
+      })))
+      
+      
+      rowOrder=order(etiology_data$Etiology_category)
+      etiology_data <- etiology_data[rowOrder, ,drop=F]
+      etiology_data$annotation_color <- etiology_colors$Etiology[match(etiology_data$Etiology, names(etiology_colors$Etiology))]
+      etiology_data$category_color <- category_colors[match(etiology_data$Etiology_category, names(category_colors))]
+    }
+  }
   return(list(signatures=cosmic_signatures,etio=etiology_data))
   
 }
@@ -75,7 +83,7 @@ detect_maf_genome <- function(maf) {
     return(NA)
   }
   
-  my_genome = unique(maf@data$NCBI_Build)
+  my_genome = paste0("GRCh",gsub("GRCh","",unique(maf@data$NCBI_Build)))
   if (length(my_genome) > 1) {
     warning("Multiple genomes listed in MAF obj. Trying the first one")
     my_genome <- my_genome[1]
@@ -94,19 +102,21 @@ detect_maf_genome <- function(maf) {
 }
 
 
-make_signature_plot <- function(tnm, savepath=NULL) {
+make_signature_plot <- function(tnm, savepath=NULL, signature_type="SBS") {
   # Basically stolen from: https://github.com/UMCUGenetics/MutationalPatterns/blob/master/R/plot_96_profile.R
-
+  require(ggplot2)
   mydf <- data.frame(substitution = gsub(".*\\[(.*)\\].*","\\1",rownames(tnm)),
                      context=gsub("\\[.*\\]","\\.",rownames(tnm)),
                      apply(tnm,2,function(x){round(x/sum(x),digits = 5)}),
                      stringsAsFactors = F)
   plotdf <- reshape2::melt(mydf, id.vars=c("substitution","context"))
+  plotdf <- plotdf[!is.nan(plotdf$value),]
   ymax=max(plotdf$value)
   COLORS6 <- c(
     "#2EBAED", "#000000", "#DE1C14",
     "#D4D2D2", "#ADCC54", "#F0D0CE"
   )
+  # browser()
   plot_96 = ggplot(data = plotdf, aes(x = context, y = value, 
                                    fill = substitution, width = 1)) + 
     geom_bar(stat = "identity", colour = "black", size = 0.2) + 
@@ -124,13 +134,21 @@ make_signature_plot <- function(tnm, savepath=NULL) {
   if (!is.null(savepath)) {
     myheight=ncol(mydf)*0.8
     ggsave(savepath,plot=plot_96,height=myheight, width=8, limitsize=F)
-    return()
+    return(savepath)
   } else {
     return(plot_96)
   }
 }
 
 
+signature_plot_colorpalette <- function(signature_type="SBS") {
+  
+  COLORS6 <- c(
+    "#2EBAED", "#000000", "#DE1C14",
+    "#D4D2D2", "#ADCC54", "#F0D0CE"
+  )
+  
+}
 
 
 make_mut_signature_heatmap <- function(mymaf,use_silent_mutations=F, clinVarNames = NULL, 
@@ -233,7 +251,7 @@ make_mut_signature_heatmap <- function(mymaf,use_silent_mutations=F, clinVarName
     # print(myanno)
   }
   add_sample_names <- ifelse(ncol(plot_matrix)>10, F, T)
-  
+  plot_matrix[is.nan(plot_matrix)] <- 0
   myHM <- Heatmap(plot_matrix, 
                   col=colorRamp2(seq(min(plot_matrix), max(plot_matrix), length.out = 20),colorRampPalette(brewer.pal(9, "BuGn"))(20)),
                   left_annotation = signature_anno,

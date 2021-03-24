@@ -1,0 +1,293 @@
+---
+title: "My typical usage of `mt_helpers`"
+author: "Mayank Tandon"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    code_folding: show
+---
+
+---------------------------------
+
+# Example exploration
+
+---------------------------------
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(maftools)
+library(openxlsx)
+library(ComplexHeatmap)
+library(plotly)
+library(dplyr)
+```
+
+# Source `mt_helpers`
+We're just sourcing the functions straight from Github
+```{r source-helpers,warning=F}
+## For TCGA-related functions
+source("https://raw.githubusercontent.com/mtandon09/mt_helpers/main/helper_functions.tcga.R")
+## For oncoplot and other MAF plotting functions
+source("https://raw.githubusercontent.com/mtandon09/mt_helpers/main/helper_functions.oncoplot.R")
+## For mutational signatures functions
+source("https://raw.githubusercontent.com/mtandon09/mt_helpers/main/helper_functions.mutsig.R")
+```
+  
+------------------------------------------
+
+# Get some MAF data
+
+`get_tcga_data` will fetch MAF files from TCGA data using [`TCGABiolinks`](https://bioconductor.org/packages/release/bioc/html/TCGAbiolinks.html). It just packages the jobs of fetching a MAF file, it's associated clinical data and returns a `maftools` MAF object.
+
+We'll use data from the [TCGA-ACC project](https://portal.gdc.cancer.gov/projects/TCGA-ACC).
+
+```{r get-maf-data,message=F,warning=F,output=F,results='hold', attr.output='style="max-height: 150;"'}
+tcga_maf <- get_tcga_data(tcga_dataset = "ACC", variant_caller = "mutect2")
+print(tcga_maf)
+```
+
+The MAF file will be saved as `./data/TCGA_ACC/mutect2/TCGA-ACC.mutect2.maf`
+
+------------------------------------------
+
+# Filter MAF data
+
+`filter_maf_chunked` is a function to read and filter a MAF file in chunks.  This kinda helps for huge MAFs (say > 500k variant or a couple of Gbs), but ultimately you still gotta hold 'em in memory because this is R `:(`, so downstream work may still be clunky/might not work.
+
+It uses another function, `filter_maf_tbl`, which is meant to work on `data.table` tibbles, so you can repurpose that for use with `maftools` objects (i.e. the `maf@data` or `maf@maf.silent` slots).
+
+One key feature of this function is that it will also remove top 50 [exome FLAG genes](https://bmcmedgenomics.biomedcentral.com/articles/10.1186/s12920-014-0064-y) by default.
+
+
+```{r filter-maf-data,message=T,warning=T,results='hold',attr.output='style="max-height: 150;"'}
+source("../helper_functions.oncoplot.R")
+# tcga_maf.filtered <- filter_maf_chunked("data/TCGA_ACC/mutect2/TCGA_ACC.mutect2.maf")
+tcga_maf.filtered <- filter_maf_chunked(tcga_maf)
+print(tcga_maf.filtered)
+```
+
+## Count silent vs. non-silent mutations
+
+`plot_silent_nonsilent` returns a `ggplot2` plot, so we can easily make it interactive with `plotly::ggplotly`
+
+### Silent/Non-Silent
+
+```{r silent-nonsilent,message=F,warning=F}
+plotly::ggplotly(plot_silent_nonsilent(tcga_maf.filtered))
+```
+
+------------------------------------------
+
+# Mutation Burden
+
+## Plot mutation burden {.tabset}
+
+`make_burden_plot` returns a `ggplot2` plot, so we can easily make it interactive with `plotly::ggplotly`
+
+### Dot plot
+
+This is more useful for larger cohorts
+
+```{r burden-dotplot,message=F,warning=F}
+plotly::ggplotly(make_burden_plot(tcga_maf.filtered, plotType = "Dotplot"))
+```
+
+### Bar plot
+
+This also adds Variant Classification information, but mostly useful for smaller cohorts
+
+```{r burden-barplot,message=F,warning=F}
+plotly::ggplotly(make_burden_plot(tcga_maf.filtered, plotType = "Barplot"))
+```
+
+------------------------------------------
+
+# Oncoplot
+
+## Basic oncoplot
+`make_oncoplot` is my own implementation of the `oncoPrint` function from `ComplexHeatmap` (heavily relying on ideas from `maftools`'s oncoplot function)
+
+```{r oncoplot-1,message=F,warning=F}
+myhm <- make_oncoplot(tcga_maf.filtered)
+
+draw(myhm)
+```
+
+## Sample annotations
+`tcga_clinical_colors` will make some reasonable colors for commonly reported clinical features in TCGA datasets. This can then be input into `make_oncoplot` to draw sample annotations.
+
+Note that this `clin_data` argument must be a `data.table` object (suitable for use with the `clinical.data` slot of a `MAF` object) and must contain sample IDs in a column named 'Tumor_Sample_Barcode'.
+
+```{r oncoplot-anno,message=F,warning=F, out.width="100%", out.height="500px"}
+
+source("../helper_functions.tcga.R")
+## maftools converts all columns to factor when storing the clinical data
+## So let's turn age back to numeric
+sample_annotation_data <- tcga_maf.filtered@clinical.data
+sample_annotation_data$age_at_diagnosis <- as.numeric(as.character(sample_annotation_data$age_at_diagnosis))
+
+## This function returns nice colors for selected clinical data columns
+sample_annotation_colors <- tcga_clinical_colors(sample_annotation_data)
+anno_columns <- c(names(sample_annotation_colors),"Tumor_Sample_Barcode")
+
+## Remve clinical data columns that don't have custom colors
+sample_annotation_data <- sample_annotation_data[,..anno_columns]
+
+## Plot
+source("../helper_functions.oncoplot.R")
+# myhm <- make_oncoplot(tcga_maf.filtered,
+make_oncoplot(tcga_maf.filtered,
+              savename = "annotated_oncoplot.pdf",
+              clin_data = sample_annotation_data,
+              clin_data_colors = sample_annotation_colors
+              )
+# draw(myhm)
+knitr::include_graphics(file.path(getwd(),"annotated_oncoplot.pdf"))
+```
+
+## ClinVar annotations
+`make_oncoplot2` is a more experimental version of `make_oncoplot`.  You can do things like plot selected genes and show pathogenicity annotations from ClinVar (if available in the MAF).
+
+```{r oncoplot-2,message=F,warning=F}
+## Select just the genes that have pathogenic or uncertain mentions in the ClinVar significance annotation
+mygenes <- unique(tcga_maf.filtered@data$Hugo_Symbol[grepl("pathogenic|uncertain",tcga_maf.filtered@data$CLIN_SIG, ignore.case = T)])
+
+myhm <- make_oncoplot2(tcga_maf.filtered,cohort_freq_thresh = NULL, genes_to_plot = mygenes, use_clinvar_anno = T)
+
+draw(myhm)
+```
+
+## Sets of selected genes
+
+The `genes_to_plot` argument will also accept a `data.frame` with columns named "`Reason`" and "`Hugo_Symbol`" to define custom sets of genes to display. If `cohort_freq_thresh` is set to a fraction, it will also add frequently mutated genes.
+
+Note that the genes are plotted as given, so a gene can appear several times if it is in multiple "Reason" sets.
+
+
+```{r oncoplot-3,message=F,warning=F, out.width="100%", out.height="500px"}
+## Adapted from: http://yulab-smu.top/clusterProfiler-book/chapter7.html
+library(msigdbr)
+library(stringr)
+## Get human gene sets from msigdb
+m_t2g <- msigdbr(species = "Homo sapiens", category = "H") %>% 
+  dplyr::select(gs_name, gene_symbol, gs_subcat)
+
+## Select just ones matching "JAK" or "AKT"
+pathwaysdf <- data.frame(m_t2g)
+mypaths <- pathwaysdf[grepl("JAK|AKT",pathwaysdf$gs_name, ignore.case = T),]
+
+## Set up a data frame with columns "Reason" and "Hugo_Symbol"
+## The "Reason" value is used to label the plot, so here I'm replacing _ with spaces and adding text wrapping with stringr
+genes_df <- data.frame(Reason=stringr::str_wrap(gsub("_"," ",gsub("HALLMARK_","",mypaths$gs_name)), width=10),
+                       Hugo_Symbol=mypaths$gene_symbol, 
+                       stringsAsFactors = F)
+
+## Sizing can get tricky with larger plots; it will be adjusted automatically for the number of samples and genes if saving to pdf
+make_oncoplot2(tcga_maf.filtered,cohort_freq_thresh = 0.05, genes_to_plot = genes_df, use_clinvar_anno = T, savename="customonco.pdf")
+
+## This is just for adding the plot to this markdown document
+knitr::include_graphics(file.path(getwd(),"customonco.pdf"))
+```
+
+------------------------------------------
+
+# Mutational Signatures
+
+Here we're only talking about single-base substitution (SBS) signatures, focusing on the ones [categorized by **COSMIC v3.1**](https://cancer.sanger.ac.uk/cosmic/signatures/SBS).
+
+## Download COSMIC data and etiologies
+
+I'm storing the manually curated etiology data in my [Github repo](https://github.com/mtandon09/mt_helpers).
+
+```{r download-cosmic-data,message=F,warning=F}
+# Download signatures data from my repo
+local_signatures_file="../cosmic/COSMIC_Mutational_Signatures_v3.1.xlsx"
+local_etiology_file="../cosmic/COSMIC_signature_etiology.xlsx"
+
+if (!file.exists(local_signatures_file)) {
+  if (!dir.exists(dirname(local_signatures_file))) { dir.create(dirname(local_signatures_file), recursive = T)}
+  download.file("https://github.com/mtandon09/mt_helpers/blob/main/cosmic/COSMIC_Mutational_Signatures_v3.1.xlsx?raw=true",destfile = local_signatures_file)
+}
+
+if (!file.exists(local_signatures_file)) {
+  if (!dir.exists(dirname(local_signatures_file))) { dir.create(dirname(local_signatures_file), recursive = T)}
+  download.file("https://github.com/mtandon09/mt_helpers/blob/main/cosmic/COSMIC_signature_etiology.xlsx?raw=true",destfile = local_etiology_file)
+}
+
+```
+
+## Inspect individual signatures
+
+Just plotting the first 5 samples here.
+
+```{r plot-individual-signatures,message=F,warning=F, results='hold', attr.output='style="max-height: 400px;"'}
+source("../helper_functions.mutsig.R")
+# source("https://raw.githubusercontent.com/mtandon09/mt_helpers/main/helper_functions.mutsig.R")
+### Sample signatures
+plotN=5
+make_signature_plot(make_tnm(tcga_maf.filtered)[,1:5])
+```
+
+## Plot similarity to COSMIC signatures
+
+The cosine similarity of each individual signature is computed against each COSMIC signature using the [`cosin_sim_matrix`](https://rdrr.io/bioc/MutationalPatterns/man/cos_sim_matrix.html) function from `MutationalPatterns`.
+
+The row annotations are colored by categories according to the `Proposed Etiology` section of each COSMIC signatures page (e.g. for [SBS1](https://cancer.sanger.ac.uk/cosmic/signatures/SBS/SBS1.tt#aetiology)).
+
+I tried several (relatively naïve) ways of clustering/concept-mapping the text with no luck, so instead I used those results to aid manual curation. My proposed solution, used here, can be found in [this repo as an Excel file](https://github.com/mtandon09/mt_helpers/blob/main/cosmic/COSMIC_signature_etiology.xlsx).
+
+**THIS IS EXTREMELY EXPERIMENTAL!**. If you find discrepancies or bad categorizations in these annotations, please [open an issue here](https://github.com/mtandon09/mt_helpers/issues)!
+
+
+```{r plot-cosmic-similarity,message=F,warning=F, out.width="600px", results='hide', out.width="100%", out.height="500px"}
+### COSMIC signatures
+source("../helper_functions.mutsig.R")
+## maftools converts all columns to factor when storing the clinical data
+## So let's turn age back to numeric
+sample_annotation_data <- tcga_maf.filtered@clinical.data
+sample_annotation_data$age_at_diagnosis <- as.numeric(as.character(sample_annotation_data$age_at_diagnosis))
+
+## This function returns nice colors for selected clinical data columns
+sample_annotation_colors <- tcga_clinical_colors(sample_annotation_data)
+anno_columns <- c(names(sample_annotation_colors),"Tumor_Sample_Barcode")
+
+## Remve clinical data columns that don't have custom colors
+sample_annotation_data <- sample_annotation_data[,..anno_columns]
+
+make_mut_signature_heatmap(tcga_maf.filtered,signatures_file = local_signatures_file, etio_data_xlsx = local_etiology_file, 
+                                    savename="cosmic.pdf",
+                                    clin_data = sample_annotation_data, clin_data_colors = sample_annotation_colors)
+
+## This is just for adding the plot to this markdown document
+knitr::include_graphics(file.path(getwd(),"cosmic.pdf"))
+
+```
+
+
+# Co-occurence and overlaps
+
+## Visualize overlap between samples
+`make_overlap_plot` can plot a square matrix heatmap of pair-wise overlaps, or show the same information in a ribbon plot (which is not usually helpful, but it looks pretty sometimes).
+Note that the `summarize_by` can be set to 'gene' to count overlaps by gene (one or more mutations), or set to anything else to count by variant position and protein change.
+
+This is also coded very naively so it's very slow for large cohorts.
+
+Also both plotting methods (using `pheatmap` or `circlize`) do not lend well to passing objects, so the plots are printed to PDF.
+
+```{r overlap-hm,message=F,warning=F, out.width="100%", out.height="500px"}
+source("../helper_functions.oncoplot.R")
+make_overlap_plot(tcga_maf.filtered, plotType = c("heatmap","ribbon"), savename = file.path(getwd(),"overlap.pdf"),savewidth = 12, saveheight = 12)
+
+## This is just for adding the plot to this markdown document
+knitr::include_graphics(file.path(getwd(),"overlap.pdf"))
+```
+
+------------------------------------------
+  
+# R Session Info
+
+``` {r print-session-info, attr.output='style="max-height: 150px;"'}
+sessionInfo()
+```
+

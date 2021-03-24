@@ -1,3 +1,3 @@
 ## My helper functions
 
-See examples [here](index.html)
+See usage examples [here](walkthough.html)

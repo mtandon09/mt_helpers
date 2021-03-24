@@ -1,7 +1,7 @@
 
 load_cosmic_data <- function(signatures_file=file.path("~","Documents","helper_functions","cosmic_data","COSMIC_Mutational_Signatures_v3.1.xlsx"),
-                             signature_type="SBS",
-                             etio_data_xlsx=file.path("~","Documents","helper_functions","cosmic_data","COSMIC_signature_etiology.xlsx")) {
+                             etio_data_xlsx=file.path("~","Documents","helper_functions","cosmic_data","COSMIC_signature_etiology.xlsx"),
+                             signature_type="SBS") {
   
   require(openxlsx)
   # signatures_csv <- file.path("data","cosmic","sigProfiler_exome_SBS_signatures.csv")

@@ -216,24 +216,28 @@ filter_maf_tbl <- function(maftbl,
 
 
 
-filter_maf_chunked <- function(maf_file, chunk_lines=10000, save_name=NULL,...) {
+filter_maf_chunked <- function(maf, chunk_lines=10000,...) {
   
-  require(readr)
-  readr_filterfunc <- function(df, pos) {
-    filter_maf_tbl(df,...)
-  }
-  filtered_df <- read_tsv_chunked(maf_file,chunk_size = chunk_lines, col_types = cols(), callback = DataFrameCallback$new(readr_filterfunc), comment="#")
-  
-  if (!is.null(save_name)) {
-    if (! dir.exists(dirname(save_name))) {
-      dir.create(dirname(save_name))
+  clindata <- NULL
+  if ("MAF" %in% class(maf)) {
+    filtered_df <- filter_maf_tbl(
+                            rbind(maf@data, maf@maf.silent),
+                            ...)
+    clindata <- maf@clinical.data
+    
+  } else if (file.exists(maf)) {
+    require(readr)
+    readr_filterfunc <- function(df, pos) {
+      filter_maf_tbl(df,...)
     }
-    write.table(filtered_df, sep="\t", quote=F, file = save_name, row.names = F)
-    print(paste0("Saving filtered maf to ",save_name))
-    return(save_name)
+    filtered_df <- read_tsv_chunked(maf,chunk_size = chunk_lines, col_types = cols(), callback = DataFrameCallback$new(readr_filterfunc), comment="#")
   } else {
-    return(filtered_df)
+    stop(paste0("Don't know what to do with input type '",class(maf),"'"))
   }
+  
+  maf.filtered <- read.maf(filtered_df, clinicalData = clindata)
+  return(maf.filtered)
+
   
 }
 
@@ -473,11 +477,11 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1,
   if (include_all) {
     ### createOncoMatrix drops empty samples, so this adds them back in
     # all_wes_samples <- as.character(sample_info.exome$Tumor_Sample_Barcode[!is.na(sample_info.exome$Tumor_Sample_Barcode)])
-    # all_wes_samples <- levels(maf.filtered@variants.per.sample$Tumor_Sample_Barcode)
-    # extra_samples <- setdiff(all_wes_samples, colnames(oncomat) )
-    # print(paste0("Adding back ", length(extra_samples), " samples with no reported mutations..."))
-    # empty_data <- matrix(data = "", nrow=nrow(oncomat), ncol=length(extra_samples), dimnames=list(rownames(oncomat), extra_samples))
-    # oncomat <- cbind(oncomat, empty_data)
+    all_wes_samples <- levels(maf.filtered@variants.per.sample$Tumor_Sample_Barcode)
+    extra_samples <- setdiff(all_wes_samples, colnames(oncomat) )
+    print(paste0("Adding back ", length(extra_samples), " samples with no reported mutations..."))
+    empty_data <- matrix(data = "", nrow=nrow(oncomat), ncol=length(extra_samples), dimnames=list(rownames(oncomat), extra_samples))
+    oncomat <- cbind(oncomat, empty_data)
   }
   
   if (!is.null(custom_column_order)) {

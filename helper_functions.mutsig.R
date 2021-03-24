@@ -157,6 +157,7 @@ make_mut_signature_heatmap <- function(mymaf,use_silent_mutations=F, clinVarName
                                        clin_data=NULL, clin_data_colors=NULL,
                                        signatures_file=file.path("~","Documents","helper_functions","cosmic_data","COSMIC_Mutational_Signatures_v3.1.xlsx"),
                                        etio_data_xlsx=file.path("~","Documents","helper_functions","cosmic_data","COSMIC_signature_etiology.xlsx"),
+                                       savename=NULL,
                                        progress_func=NULL) {
   require(maftools)
   require(MutationalPatterns)
@@ -246,10 +247,12 @@ make_mut_signature_heatmap <- function(mymaf,use_silent_mutations=F, clinVarName
   
   myanno=NULL
   if (!is.null(clin_data)) {
-    
-    # myanno <- make_column_annotation(clin_data,colnames(plot_matrix), clin_data_colors)
-    # print(myanno)
+    anno_data <- data.frame(clin_data[match(colnames(plot_matrix), clin_data$Tumor_Sample_Barcode),],stringsAsFactors = F)
+    row.names(anno_data) <- anno_data$Tumor_Sample_Barcode
+    anno_data <- anno_data[,!colnames(anno_data) %in% "Tumor_Sample_Barcode"]
+    myanno <- HeatmapAnnotation(df=anno_data,col = clin_data_colors)
   }
+  
   add_sample_names <- ifelse(ncol(plot_matrix)>10, F, T)
   plot_matrix[is.nan(plot_matrix)] <- 0
   myHM <- Heatmap(plot_matrix, 
@@ -270,14 +273,26 @@ make_mut_signature_heatmap <- function(mymaf,use_silent_mutations=F, clinVarName
                   show_row_names=T, row_names_gp = gpar(fontsize = 5),
                   show_column_names = add_sample_names)
   
+  if ( ! is.null(savename) ) {
+    # save_name <- paste0(out_dir,"/oncoplot.",cohort_freq_thresh,".pdf")
+    # browser()
+    anno_height=ifelse(!is.null(clin_data), min(c(4, 0.5*ncol(clin_data))), 0)
+    hm_height=max(round(0.1*nrow(plot_matrix),0),4) + anno_height
+    hm_width=hm_height*0.75 + anno_height*1.2
+    pdf(file = savename,height=hm_height,width=hm_width)
+    draw(myHM)
+    dev.off()
+  }
+  
+  ### Return the oncoplot (if function is pointed to a variable)
+  returnval <- myHM
   if (full_output) {
     output_list <- list(plot_matrix=plot_matrix,
                         signature_annotations=signature_anno,
                         etiology_data=etiology_data, 
                         heatmap_obj=myHM)
-    return(output_list)
-  } else {
-    return(myHM)
+    returnval <- output_list
   }
   
+  invisible(myHM)
 }

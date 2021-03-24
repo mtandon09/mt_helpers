@@ -326,12 +326,14 @@ make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_t
     show_sample_names=F
   }
   
-  # browser()
   myanno=NULL
   if (!is.null(clin_data)) {
-    
-    myanno <- make_column_annotation(clin_data,colnames(oncomat.plot), clin_data_colors)
-    # print(myanno)
+    anno_data <- data.frame(clin_data[match(colnames(oncomat.plot), clin_data$Tumor_Sample_Barcode),],stringsAsFactors = F)
+    row.names(anno_data) <- anno_data$Tumor_Sample_Barcode
+    anno_data <- anno_data[,!colnames(anno_data) %in% "Tumor_Sample_Barcode"]
+    if (ncol(anno_data) > 1) {
+      myanno <- HeatmapAnnotation(df=anno_data,col = clin_data_colors)
+    }
   }
   
   ## Show total burden for top annotation
@@ -364,8 +366,10 @@ make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_t
   
   if ( ! is.null(savename) ) {
     # save_name <- paste0(out_dir,"/oncoplot.",cohort_freq_thresh,".pdf")
-    onco_height=max(round(0.15*nrow(oncomat.plot),0),6)
-    onco_width=onco_height*0.75
+    # browser()
+    anno_height=ifelse(!is.null(clin_data), min(c(4, 0.5*ncol(clin_data))), 0)
+    onco_height=max(round(0.1*nrow(oncomat.plot),0),4) + anno_height
+    onco_width=onco_height*0.75 + anno_height*1.2
     pdf(file = savename,height=onco_height,width=onco_width)
     draw(onco_base_default)
     dev.off()

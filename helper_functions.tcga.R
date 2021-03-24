@@ -1,7 +1,7 @@
 get_tcga_data <- function(tcga_dataset="ACC",save_folder=file.path("data"), variant_caller="mutect2") {
   
   require(TCGAbiolinks)
-  
+  message("Getting TCGA MAF...")
   tcga_dataset <- gsub("TCGA-","",tcga_dataset)
   save_folder=file.path(save_folder,paste0("TCGA_",tcga_dataset),variant_caller)
   tcga_maf_file=file.path(save_folder,paste0("TCGA_",tcga_dataset,".",variant_caller,".maf"))
@@ -12,19 +12,22 @@ get_tcga_data <- function(tcga_dataset="ACC",save_folder=file.path("data"), vari
                              pipelines = variant_caller, 
                              directory = save_folder)
     tcga_maf$Tumor_Sample_Barcode_original <- tcga_maf$Tumor_Sample_Barcode
+    ### The codes in the MAF are specimen IDs, but clinical data is provided by patient IDs
+    ## The correct solution would be get the biospecimen data and clinical data and link it together to get patient IDs
+    ## But here I'm just chopping the specimen part of the code off
     tcga_maf$Tumor_Sample_Barcode <-unlist(lapply(strsplit(tcga_maf$Tumor_Sample_Barcode, "-"), function(x) {paste0(x[1:3], collapse="-")}))
     tcga_maf$caller <- variant_caller
     write.table(tcga_maf, file=tcga_maf_file, quote=F, sep="\t", row.names = F, col.names = T)
   }
   
   
+  message("Adding clinical data")
   tcga_clinical_file=file.path(save_folder,paste0("TCGA_",tcga_dataset,".clinical.txt"))
   if (! file.exists(tcga_clinical_file)) {
     if (!dir.exists(dirname(tcga_clinical_file))) {dir.create(dirname(tcga_clinical_file), recursive = T)}
     tcga_clinical <- GDCquery_clinic(project = paste0("TCGA-",tcga_dataset), type = "clinical")
     write.table(tcga_clinical, file=tcga_clinical_file, quote=T, sep="\t", row.names = F, col.names = T)
   }
-  
   
   tcga_clin_data <- read.table(tcga_clinical_file, sep="\t",header = T,stringsAsFactors = F)
   tcga_clin_data$Tumor_Sample_Barcode <- tcga_clin_data$bcr_patient_barcode
@@ -36,7 +39,7 @@ get_tcga_data <- function(tcga_dataset="ACC",save_folder=file.path("data"), vari
 }
 
 
-make_tcga_clinical_annotation <- function(tcga_maf_obj, plotdata=NULL) {
+make_tcga_clinical_annotation <- function(tcga_maf_obj, oncomat_to_match=NULL) {
   require(maftools)
   require(RColorBrewer)
   require(ComplexHeatmap)
@@ -44,8 +47,8 @@ make_tcga_clinical_annotation <- function(tcga_maf_obj, plotdata=NULL) {
   tcga_clin_data <- tcga_maf_obj@clinical.data
   tcga_pheno_columns <- c("Tumor_Sample_Barcode","ajcc_pathologic_stage","age_at_diagnosis","gender","race","vital_status","tissue_or_organ_of_origin")
   matched_order=1:nrow(tcga_clin_data)
-  if (!is.null(plotdata)) {
-    matched_order=match(colnames(plotdata), tcga_clin_data$Tumor_Sample_Barcode, nomatch=0)
+  if (!is.null(oncomat_to_match)) {
+    matched_order=match(colnames(oncomat_to_match), tcga_clin_data$Tumor_Sample_Barcode, nomatch=0)
   } 
   tcga_anno_data <- tcga_clin_data[matched_order,..tcga_pheno_columns]
   tcga_dataset <- paste0(unique(tcga_clin_data$disease), collapse=",")
@@ -90,6 +93,58 @@ make_tcga_clinical_annotation <- function(tcga_maf_obj, plotdata=NULL) {
   
 }
 
+tcga_clinical_colors <- function(tcga_clin_data) {
+  require(maftools)
+  require(RColorBrewer)
+  require(ComplexHeatmap)
+  require(circlize)
+  
+  preset_columns <- c("Tumor_Sample_Barcode","ajcc_pathologic_stage","age_at_diagnosis","gender","race","vital_status","tissue_or_organ_of_origin")
+  
+  found_columns <- intersect(colnames(tcga_clin_data), preset_columns)
+  if ( ! "Tumor_Sample_Barcode" %in% found_columns ) {
+    stop("Clinical data must contain a 'Tumor_Sample_Barcode' column.")
+  }
+  if (length(found_columns) < 2) {
+    stop(paste0("Clinical data must contain at least one of the columns: ", paste0(preset_columns, collapse = ", ")))
+  }
+  
+  anno_data <- tcga_clin_data[,..found_columns]
+  anno_data$Dataset <- paste0(unique(tcga_clin_data$disease), collapse=",")
+  
+  color_list <- lapply(found_columns, function(featurename) {
+    
+    return_val=NULL
+    switch(featurename,
+           "ajcc_pathologic_stage"={
+              stages=sort(unique(anno_data$ajcc_pathologic_stage))
+              return_val <- setNames(brewer.pal(n = length(stages), name = "Reds"), stages)
+           },
+           "age_at_diagnosis"={
+             anno_data$age_at_diagnosis <- as.numeric(as.character(anno_data$age_at_diagnosis))
+             age_range=round(range(anno_data$age_at_diagnosis, na.rm = T),-1)
+             age_color_length=10
+             age_breaks=round(seq(age_range[1], age_range[2], length.out=age_color_length),0)
+             age_color_vals=colorRampPalette(c("lightblue1","royalblue1","navy"))(age_color_length)
+             return_val <- colorRamp2(age_breaks, age_color_vals)
+           },
+           "gender"={
+             c(female="hotpink", male="cornflowerblue")
+           },
+           "race"={
+             races=sort(unique(anno_data$race))
+             return_val <- setNames(rev(brewer.pal(n = length(races), name = "Set1")), races)
+           },
+           "vital_status"={
+             statuses=sort(unique(anno_data$vital_status))
+             return_val <- c(Alive="darkgreen",Dead="darkred")
+           }
+         )
+    return(return_val)
+  })
+  
+  return(color_list)
+}
 
 
 

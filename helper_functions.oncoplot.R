@@ -92,16 +92,15 @@ filter_maf <- function(maf_file, flag_genes="default",save_name=NULL,no_filter=F
   }
 }
 
-filter_maf_tbl <- function(maftbl, 
-                           flag_genes="default",
+filter_maf_tbl <- function(maftbl, # A tibble for filtering
+                           flag_genes="default",  # Character vector of gene symbols to exclude; or set to 'default' to remove preset list of 50 genes from the FLAG paper
                            #save_name=NULL,
-                           no_filter=F,
-                           grep_vcf_filter_col="PASS",
-                           non_silent_only=F,
-                           t_alt_min=2,
-                           t_alt_max=1e12,
-                           t_depth_min=5,
-                           t_depth_max=1e12, 
+                           grep_vcf_filter_col="PASS|\\.",  # Regex to select from the FILTER column
+                           non_silent_only=F,     # If TRUE, only non-silent mutations are returned (same definition as maftools)
+                           t_alt_min=2,           # Minimum count for ALT allele in tumor sample
+                           t_alt_max=1e12,        # Maximum count for ALT allele in tumor sample
+                           t_depth_min=5,         # Minimum total depth (REF+ALT) in tumor sample
+                           t_depth_max=1e12,      # Maximum total depth (REF+ALT) in tumor sample
                            tumor_freq_min=0.01,
                            tumor_freq_max=1,
                            n_alt_min=0,
@@ -109,7 +108,7 @@ filter_maf_tbl <- function(maftbl,
                            n_depth_min=0,
                            n_depth_max=1e12,
                            norm_freq_min=0,
-                           norm_freq_max=0.02,
+                           norm_freq_max=0.01,
                            gnomAD_AF_min=0,
                            gnomAD_AF_max=0.001,
                            AF_min=0,
@@ -133,7 +132,6 @@ filter_maf_tbl <- function(maftbl,
   
   if ("FILTER" %in% colnames(maf_df.raw)) {
     if (!is.null(grep_vcf_filter_col)) {
-      # maf_df.raw <- maf_df.raw[grepl(grep_vcf_filter_col,pull(maf_df.raw,FILTER)),]
       maf_df.raw <- maf_df.raw[grepl(grep_vcf_filter_col,maf_df.raw$FILTER),]
     }
   } else {
@@ -153,32 +151,51 @@ filter_maf_tbl <- function(maftbl,
     message("Variant_Classification column not found; skipping...")
   }
   
-  # if (!"tumor_freq" %in% colnames(maf_df.raw)) {
-  #   # if (! all(c("t_alt_count","t_depth") %in% colnames(maf_df.raw))) {
-  #     # stop("Can't find t_alt_count or t_depth columns")
-  #   # }
-  #   if (! "t_alt_count" %in% colnames(maf_df.raw)) {
-  #     maf_df.raw$t_alt_count <- NA
-  #   }
-  #   if (! "t_alt_count" %in% colnames(maf_df.raw)) {
-  #     maf_df.raw$t_depth <- NA
-  #   }
-  #   maf_df.raw$tumor_freq <- as.numeric(maf_df.raw$t_alt_count)/as.numeric(maf_df.raw$t_depth)
-  # }  
-  # if (!"norm_freq" %in% colnames(maf_df.raw)) {
-  #   # if (! all(c("n_alt_count","n_depth") %in% colnames(maf_df.raw))) {
-  #   #   maf_df.raw$norm_freq <- rep(0, nrow(maf_df.raw))
-  #   # } else {
-  #   #   maf_df.raw$norm_freq <- as.numeric(maf_df.raw$n_alt_count)/as.numeric(maf_df.raw$n_depth)
-  #   # }
-  #   if (! "n_alt_count" %in% colnames(maf_df.raw)) {
-  #     maf_df.raw$t_alt_count <- NA
-  #   }
-  #   if (! "n_depth" %in% colnames(maf_df.raw)) {
-  #     maf_df.raw$t_depth <- NA
-  #   }
-  #   maf_df.raw$norm_freq <- as.numeric(maf_df.raw$n_alt_count)/as.numeric(maf_df.raw$n_depth)
-  # }
+  caller_set_column="set"
+  filter_caller=rep(TRUE,nrow(maf_df.raw))
+  if (! is.null(variant_caller)) {       ### Set 'variant_caller' to NULL to skip any filtering based on caller
+    if (caller_set_column %in% colnames(maf_df.raw)) {
+      maf_df.raw$set[maf_df.raw$set=="" & maf_df.raw$Hugo_Symbol=="Hugo_Symbol"] <- caller_set_column  ## This can happen if MAFs are lazily cat-ed together (mutiple header lines in the file)
+      maf_df.raw$set[maf_df.raw$set==""] <- "N.A."
+      if (variant_caller == "consensus") {   ### Set 'variant_caller' to 'consensus' to keep variants by two or more callers
+        # filter_caller <- grepl("-|Intersection", maf_df.raw$set)
+        filter_caller <- unlist(lapply(strsplit(maf_df.raw$set,"-"), function(x) {length(x)>=n_callers | "Intersection" %in% x}))
+      } else {                             ### Set 'variant_caller' to one of the callers (mutect, mutect2, vardict, or strelka) to get only that caller
+        # filter_caller <- grepl(paste0(variant_caller,"[|-]|Intersection"), maf_df.raw$set)
+        filter_caller <- unlist(lapply(strsplit(maf_df.raw$set,"-"), function(x) {any(unique(c(variant_caller,"Intersection")) %in% x)}))
+      }
+    }
+  }
+  maf_df.raw <- maf_df.raw[filter_caller,]
+  # browser()
+
+  if (!"tumor_freq" %in% colnames(maf_df.raw)) {
+    # if (! all(c("t_alt_count","t_depth") %in% colnames(maf_df.raw))) {
+      # stop("Can't find t_alt_count or t_depth columns")
+    # }
+    if (! "t_alt_count" %in% colnames(maf_df.raw)) {
+      maf_df.raw$t_alt_count <- NA
+    }
+    if (! "t_alt_count" %in% colnames(maf_df.raw)) {
+      maf_df.raw$t_depth <- NA
+    }
+    maf_df.raw$tumor_freq <- as.numeric(maf_df.raw$t_alt_count)/as.numeric(maf_df.raw$t_depth)
+  }
+  if (!"norm_freq" %in% colnames(maf_df.raw)) {
+    # if (! all(c("n_alt_count","n_depth") %in% colnames(maf_df.raw))) {
+    #   maf_df.raw$norm_freq <- rep(0, nrow(maf_df.raw))
+    # } else {
+    #   maf_df.raw$norm_freq <- as.numeric(maf_df.raw$n_alt_count)/as.numeric(maf_df.raw$n_depth)
+    # }
+    
+    if (! "n_alt_count" %in% colnames(maf_df.raw) ) {
+      maf_df.raw$n_alt_count <- NA
+    }
+    if (! "n_depth" %in% colnames(maf_df.raw)) {
+      maf_df.raw$n_depth <- NA
+    }
+    maf_df.raw$norm_freq <- as.numeric(maf_df.raw$n_alt_count)/as.numeric(maf_df.raw$n_depth)
+  }
   
   
   maf_num_filter_columns <- list("t_alt_count"=c(min=t_alt_min, max=t_alt_max),
@@ -197,16 +214,23 @@ filter_maf_tbl <- function(maftbl,
   if (length(notfound) > 0 ) {
     message(paste0("Couldn't find these columns; skipping filtering for these: ", paste0(notfound, collapse=",")))
   }
+  # maf_df.raw$Matched_Norm_Sample_Barcode[is.na(maf_df.raw$Matched_Norm_Sample_Barcode)] <- 0
+  if (all(maf_df.raw$Tumor_Sample_Barcode==maf_df.raw$Matched_Norm_Sample_Barcode, na.rm=T)) {
+    warning("Normal IDs match tumor IDs, skipping n_alt_count, n_depth, and norm_freq filters...")
+    numfilter_columns <- setdiff(numfilter_columns, c("n_alt_count","n_depth","norm_freq"))
+  }
   
   return_df <- maf_df.raw
   if (length(numfilter_columns)>0) {
     all_num_filters <- lapply(numfilter_columns, function(col_name) {
       currdata <- as.numeric(pull(maf_df.raw,col_name))
-      currdata[is.na(currdata)] <- 0
+      currdata[is.na(currdata)] <- 0  ## Keeps NAs
       filter_vec <- currdata >= maf_num_filter_columns[[col_name]]["min"] & currdata <= maf_num_filter_columns[[col_name]]["max"]
       return(filter_vec)
     })
+    names(all_num_filters) <- numfilter_columns
     # browser()
+    # print(lapply(all_num_filters, sum))
     final_num_filters <- Reduce("&", all_num_filters)
     
     return_df <- maf_df.raw[final_num_filters,]
@@ -216,8 +240,8 @@ filter_maf_tbl <- function(maftbl,
 
 
 
-filter_maf_chunked <- function(maf, chunk_lines=10000,...) {
-  
+filter_maf_chunked <- function(maf, chunk_lines=10000, savename=NULL,...) {
+  require(maftools)
   clindata <- NULL
   if ("MAF" %in% class(maf)) {
     filtered_df <- filter_maf_tbl(
@@ -235,15 +259,17 @@ filter_maf_chunked <- function(maf, chunk_lines=10000,...) {
     stop(paste0("Don't know what to do with input type '",class(maf),"'"))
   }
   
+  if ( ! is.null(savename) ) {
+    if (!dir.exists(dirname(savename))) {dir.create(dirname(savename), recursive = T)}
+    write.table(filtered_df, file=savename,sep="\t", row.names=F)
+  }
   maf.filtered <- read.maf(filtered_df, clinicalData = clindata)
-  return(maf.filtered)
-
-  
+  invisible(maf.filtered)
 }
 
 
 make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_threshold=T,
-                          oncomat_only=F,
+                          oncomat_only=F, show_sample_names=NULL,
                           clin_data=NULL, clin_data_colors=NULL,
                           savename=NULL) {
   require(ComplexHeatmap)
@@ -319,11 +345,16 @@ make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_t
   # my_mut_col <- mutation_colors
   # names(mutation_colors) <- gsub("_"," ",names(mutation_colors))
   oncomat.plot <- gsub("_"," ",oncomat.plot)
-  
+  # browser()
+  if (length(oncomat.plot) < 1) {
+    stop("No samples to plot.")
+  }
   ### Column labels get cluttered if too many samples
-  show_sample_names=T
-  if (ncol(oncomat.plot) > 20) {
-    show_sample_names=F
+  if (!is.logial(show_sample_names)) {
+    show_sample_names=T
+    if (ncol(oncomat.plot) > 20) {
+      show_sample_names=F
+    }
   }
   
   myanno=NULL
@@ -380,15 +411,16 @@ make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_t
 }
 
 
-make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1,
+make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1, auto_adjust_threshold=T,
                           use_clinvar_anno=F, title_text="",
                           genes_to_plot=NULL, include_all=F,
+                          show_sample_names=NULL,
+                          clin_data=NULL,clin_data_colors=NULL,
                           custom_column_order=NULL, full_output=F,
                           savename=NULL) {
   
   ### Read in MAF file
   # maf.filtered <- read.maf(maf_file)
-  
   if (! is.null(genes_to_plot)) {
     if (class(genes_to_plot)=="character") {
       if (length(genes_to_plot)==1) {
@@ -436,8 +468,16 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1,
       stop("No genes to plot; change the frequency threshold to include more genes.")
     }
     if (length(freq_genes) > 200) {
-      target_frac = round(sort(frac_mut$frac_mut, decreasing = T)[min(50,nrow(frac_mut))],2)
-      stop(paste0("Too many genes for oncoplot. Trying setting the cohort mutated fraction to > ", target_frac))
+      # target_frac = round(sort(frac_mut$frac_mut, decreasing = T)[min(50,nrow(frac_mut))],2)
+      ngene_max=25
+      # auto_adjust_threshold=T
+      target_frac = sort(frac_mut$frac_mut, decreasing = T)[min(ngene_max,nrow(frac_mut))]
+      if (auto_adjust_threshold) {
+        cohort_freq_thresh <- max(c(cohort_freq_thresh,target_frac))
+      }
+      warning(paste0("Too many genes for oncoplot. Setting the cohort mutated fraction to > ", target_frac))
+      freq_genes <- frac_mut$Hugo_Symbol[frac_mut$frac_mut >= cohort_freq_thresh]
+      freq_genes <- freq_genes[1:ngene_max]
       # return(NA)
     }
     gene_list <- list(freq_genes)
@@ -474,7 +514,7 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1,
   } else {
     oncomat <- createOncoMatrix(maf.filtered, g=genes_for_oncoplot$Hugo_Symbol, add_missing = include_all)$oncoMatrix
   }
-  oncomat <- oncomat[match(genes_for_oncoplot$Hugo_Symbol,rownames(oncomat)), ]
+  oncomat <- oncomat[match(genes_for_oncoplot$Hugo_Symbol,rownames(oncomat)), , drop=F]
   onco_genes <- rownames(oncomat)
   
   # browser()
@@ -504,16 +544,21 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1,
   # my_mut_col <- mutation_colors
   # names(mutation_colors) <- gsub("_"," ",names(mutation_colors))
   oncomat.plot <- gsub("_"," ",oncomat.plot)
-  
+  # browser()
+  if (ncol(oncomat.plot) < 1) {
+    stop("No samples to plot.")
+  }
   ### Column labels get cluttered if too many samples
-  show_sample_names=T
-  if (ncol(oncomat.plot) > 20) {
-    show_sample_names=F
+  if (!is.logical(show_sample_names)) {
+    show_sample_names=T
+    if (ncol(oncomat.plot) > 20) {
+      show_sample_names=F
+    }
   }
   
   # if (show_burden) {
   variant_type_data <- data.frame(maf.filtered@variant.classification.summary)
-  unmut_samples <- setdiff(levels(variant_type_data$Tumor_Sample_Barcode),variant_type_data$Tumor_Sample_Barcode)
+  unmut_samples <- setdiff(levels(variant_type_data$Tumor_Sample_Barcode),as.character(variant_type_data$Tumor_Sample_Barcode))
   
   if (length(unmut_samples) > 0) {
     unmut_data <- data.frame(unmut_samples, matrix(0, nrow=length(unmut_samples), ncol=ncol(variant_type_data)-1))
@@ -523,9 +568,9 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1,
   
   rownames(variant_type_data) <- variant_type_data$Tumor_Sample_Barcode
   colnames(variant_type_data) <- gsub("_"," ",colnames(variant_type_data))
-  variant_type_data <- variant_type_data[,c(-1,-ncol(variant_type_data))]
+  variant_type_data <- variant_type_data[,c(-1,-ncol(variant_type_data)), drop=F]
   variant_type_data <- variant_type_data[match(colnames(oncomat.plot), rownames(variant_type_data)),
-                                         rev(order(colSums(variant_type_data)))]
+                                         rev(order(colSums(variant_type_data))), drop=F]
   # browser()
   var_anno_colors <- mutation_colors[match(colnames(variant_type_data), names(mutation_colors))]
   ha = HeatmapAnnotation(Burden = anno_barplot(variant_type_data, gp = gpar(fill = var_anno_colors), border = F))
@@ -533,7 +578,25 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1,
   
   pct_anno <- paste0(prettyNum(frac_mut$frac_mut[match(onco_genes, frac_mut$Hugo_Symbol)]*100,digits=1),"%")
   left_ha = rowAnnotation("Cohort Pct"=anno_text(pct_anno,gp = gpar(cex=0.7)), show_annotation_name=F)
-  # print(oncomat.plot)
+  
+  myanno=NULL
+  if (!is.null(clin_data)) {
+    # browser()
+    anno_data <- data.frame(clin_data[match(colnames(oncomat.plot), clin_data$Tumor_Sample_Barcode, nomatch=0),],stringsAsFactors = F)
+    extra_ids <-setdiff(colnames(oncomat.plot), rownames(anno_data))
+    emptydat <- data.frame(matrix(nrow=length(extra_ids), ncol=ncol(anno_data)), stringsAsFactors = F)
+    colnames(emptydat) <- colnames(anno_data)
+    emptydat[,"Tumor_Sample_Barcode"] <- extra_ids
+    anno_data <- rbind(anno_data,
+                       emptydat)
+    
+    row.names(anno_data) <- anno_data$Tumor_Sample_Barcode
+    anno_data <- anno_data[,!colnames(anno_data) %in% "Tumor_Sample_Barcode", drop=F]
+    if (ncol(anno_data) > 0) {
+      myanno <- HeatmapAnnotation(df=anno_data,col = clin_data_colors)
+    }
+  }
+  
   ### Make the oncoplot
   # browser()
   
@@ -542,7 +605,7 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1,
                                  row_title=title_text,
                                  show_pct = F,
                                  row_split=split_idx,
-                                 # row_title = NULL,
+                                 bottom_annotation = myanno,
                                  left_annotation = rowAnnotation(Reason = split_idx, col=split_colors, annotation_width = unit(0.3, "mm"), show_annotation_name=F),
                                  right_annotation = left_ha,
                                  top_annotation = ha,
@@ -561,7 +624,7 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1,
   if ( ! is.null(savename) ) {
     # save_name <- paste0(out_dir,"/oncoplot.",cohort_freq_thresh,".pdf")
     onco_height=max(round(0.15*nrow(oncomat.plot),0),6)
-    onco_width=onco_height*0.75
+    onco_width=max(c(onco_height*0.75,max(round(0.4*ncol(oncomat.plot),0))))
     pdf(file = savename,height=onco_height,width=onco_width)
     draw(onco_base_default)
     dev.off()
@@ -934,27 +997,23 @@ make_single_ribbon_plot <- function(maf, onco_genes=NULL, save_name=NULL, ribbon
 
 
 detect_maf_genome <- function(maf) {
-  if (! "NCBI_Build" %in% colnames(maf@data)) {
+  if (!"NCBI_Build" %in% colnames(maf@data)) {
     warning("No genome information in MAF obj.")
     return(NA)
   }
-  
-  my_genome = paste0("GRCh",gsub("GRCh","",unique(maf@data$NCBI_Build)))
+  my_genome = unique(maf@data$NCBI_Build)
   if (length(my_genome) > 1) {
     warning("Multiple genomes listed in MAF obj. Trying the first one")
     my_genome <- my_genome[1]
   }
-  
-  return_genome <- switch(my_genome,GRCh38="hg38",GRCh37="hg19",GRCm38="mm10", NA)
-  
+  return_genome <- switch(my_genome, GRCh38 = "hg38", GRCh37 = "hg19", 
+                          GRCm38 = "mm10", NA)
   my_chrs <- unique(maf@data$Chromosome)
   add_chr = sum(grepl("^chr", my_chrs)) < length(my_chrs)
-  
-  pkg_prefix=ifelse(return_genome=="mm10","BSgenome.Mmusculus.UCSC.","BSgenome.Hsapiens.UCSC.")
-  genome_package=paste0(pkg_prefix,return_genome)
-  
-  return(list(genome=return_genome, add_chr=add_chr, bsgenome_pkg=genome_package))
-  
+  pkg_prefix = ifelse(return_genome == "mm10", "BSgenome.Mmusculus.UCSC.", 
+                      "BSgenome.Hsapiens.UCSC.")
+  genome_package = paste0(pkg_prefix, return_genome)
+  return(list(genome = return_genome, add_chr = add_chr, bsgenome_pkg = genome_package))
 }
 
 

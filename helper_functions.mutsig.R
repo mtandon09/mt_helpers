@@ -281,7 +281,7 @@ make_mut_signature_heatmap <- function(mymaf,use_silent_mutations=F, clinVarName
       fig_height=max(round(0.1*nrow(plot_matrix),0),4) + anno_height
     }
     if (is.null(fig_width)) {
-      fig_width=hm_height*0.75 + anno_height*1.2
+      fig_width=fig_height*0.75 + anno_height*1.2
     }
     pdf(file = savename,height=fig_height,width=fig_width)
     draw(myHM)

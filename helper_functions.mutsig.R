@@ -77,28 +77,23 @@ make_tnm <- function(mymaf,use_silent_mutations=F) {
 }
 
 detect_maf_genome <- function(maf) {
-  require(maftools)
-  if (! "NCBI_Build" %in% colnames(maf@data)) {
+  if (!"NCBI_Build" %in% colnames(maf@data)) {
     warning("No genome information in MAF obj.")
     return(NA)
   }
-  
-  my_genome = paste0("GRCh",gsub("GRCh","",unique(maf@data$NCBI_Build)))
+  my_genome = unique(maf@data$NCBI_Build)
   if (length(my_genome) > 1) {
     warning("Multiple genomes listed in MAF obj. Trying the first one")
     my_genome <- my_genome[1]
   }
-  
-  return_genome <- switch(my_genome,GRCh38="hg38",GRCh37="hg19",GRCm38="mm10", NA)
-  
+  return_genome <- switch(my_genome, GRCh38 = "hg38", GRCh37 = "hg19", 
+                          GRCm38 = "mm10", NA)
   my_chrs <- unique(maf@data$Chromosome)
   add_chr = sum(grepl("^chr", my_chrs)) < length(my_chrs)
-  
-  pkg_prefix=ifelse(return_genome=="mm10","BSgenome.Mmusculus.UCSC.","BSgenome.Hsapiens.UCSC.")
-  genome_package=paste0(pkg_prefix,return_genome)
-  
-  return(list(genome=return_genome, add_chr=add_chr, bsgenome_pkg=genome_package))
-  
+  pkg_prefix = ifelse(return_genome == "mm10", "BSgenome.Mmusculus.UCSC.", 
+                      "BSgenome.Hsapiens.UCSC.")
+  genome_package = paste0(pkg_prefix, return_genome)
+  return(list(genome = return_genome, add_chr = add_chr, bsgenome_pkg = genome_package))
 }
 
 
@@ -157,7 +152,10 @@ make_mut_signature_heatmap <- function(mymaf,use_silent_mutations=F, clinVarName
                                        clin_data=NULL, clin_data_colors=NULL,
                                        signatures_file=file.path("~","Documents","helper_functions","cosmic_data","COSMIC_Mutational_Signatures_v3.1.xlsx"),
                                        etio_data_xlsx=file.path("~","Documents","helper_functions","cosmic_data","COSMIC_signature_etiology.xlsx"),
+                                       add_sample_names = NULL,  ## Whether or not to add column labels; if set to NULL, will add labels only if num samples less than 10
                                        savename=NULL,
+                                       fig_height=NULL,  ## Output height (inches); set to NULL to size automatically; only used if savename is set
+                                       fig_width=NULL,   ## Output width (inches); set to NULL to size automatically; only used if savename is set
                                        progress_func=NULL) {
   require(maftools)
   require(MutationalPatterns)
@@ -253,7 +251,9 @@ make_mut_signature_heatmap <- function(mymaf,use_silent_mutations=F, clinVarName
     myanno <- HeatmapAnnotation(df=anno_data,col = clin_data_colors)
   }
   
-  add_sample_names <- ifelse(ncol(plot_matrix)>10, F, T)
+  if (is.null(add_sample_names)) {  
+    add_sample_names <- ifelse(ncol(plot_matrix)>10, F, T)
+  }
   plot_matrix[is.nan(plot_matrix)] <- 0
   myHM <- Heatmap(plot_matrix, 
                   col=colorRamp2(seq(min(plot_matrix), max(plot_matrix), length.out = 20),colorRampPalette(brewer.pal(9, "BuGn"))(20)),
@@ -276,10 +276,14 @@ make_mut_signature_heatmap <- function(mymaf,use_silent_mutations=F, clinVarName
   if ( ! is.null(savename) ) {
     # save_name <- paste0(out_dir,"/oncoplot.",cohort_freq_thresh,".pdf")
     # browser()
-    anno_height=ifelse(!is.null(clin_data), min(c(4, 0.5*ncol(clin_data))), 0)
-    hm_height=max(round(0.1*nrow(plot_matrix),0),4) + anno_height
-    hm_width=hm_height*0.75 + anno_height*1.2
-    pdf(file = savename,height=hm_height,width=hm_width)
+    if (is.null(fig_height)) {
+      anno_height=ifelse(!is.null(clin_data), min(c(4, 0.5*ncol(clin_data))), 0)
+      fig_height=max(round(0.1*nrow(plot_matrix),0),4) + anno_height
+    }
+    if (is.null(fig_width)) {
+      fig_width=hm_height*0.75 + anno_height*1.2
+    }
+    pdf(file = savename,height=fig_height,width=fig_width)
     draw(myHM)
     dev.off()
   }

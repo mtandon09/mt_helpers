@@ -222,34 +222,46 @@ makePCAplot_MT <- function(expr_vals,pheno.data=NULL,topNgenes=NULL, sampleLabel
   require(ggrepel)
   
   if (missing(pheno.data) || is.null(pheno.data)) {
-    pheno.data <- data.frame(sampleID=colnames(expr_vals), row.names = colnames(expr_vals))
+    pheno.data <- data.frame(sampleID=colnames(expr_vals),
+                             fillVar=NA,
+                             shapeVar=NA,
+                             row.names = colnames(expr_vals))
   }
   if (missing(topNgenes) || is.null(topNgenes)) {
     topNgenes <- nrow(expr_vals)
   }
   
-  # browser()
-  if (missing(fillVar) || is.null(fillVar)) {
-    if ("condition" %in% colnames(pheno.data)) {
-      fillVar = "condition"
-    }
-    # warning(paste0("No coloring variable specified. Using ",fillVar," to color samples..."))
-  }
-  if (! fillVar %in% colnames(pheno.data)) {
-    print(paste0(fillVar," not found in phenotype data.  Using this instead: ",colnames(pheno.data)[1]))
-    fillVar = colnames(pheno.data)[1]
+  browser()
+  # if (missing(fillVar) || is.null(fillVar)) {
+  #   if ("condition" %in% colnames(pheno.data)) {
+  #     fillVar = "condition"
+  #   }
+  #   # warning(paste0("No coloring variable specified. Using ",fillVar," to color samples..."))
+  # }
+  # if (! fillVar %in% colnames(pheno.data)) {
+  #   print(paste0(fillVar," not found in phenotype data.  Using this instead: ",colnames(pheno.data)[1]))
+  #   fillVar = colnames(pheno.data)[1]
+  # }
+  if (is.null(fillVar)) {
+    fillVar="fillVar"
   }
   
   if (missing(fillColors) || is.null(fillColors)) {
-    mygroups <- pheno.data[,fillVar]
-    numgroups <- length(unique(pheno.data[,fillVar]))
-    if (numgroups < 9) {
-      colorpalette <- "Paired"
-      fillColors <- colorRampPalette(brewer.pal(numgroups,colorpalette))(numgroups)
+    colordata <- pheno.data[,fillVar]
+    
+    if (is.numeric(colordata)) {
+      
     } else {
-      fillColors <- rainbow(numgroups)
+      numgroups <- length(unique(colordata))
+      if (numgroups < 9) {
+        colorpalette <- "Paired"
+        fillColors <- colorRampPalette(brewer.pal(numgroups,colorpalette))(numgroups)
+      } else {
+        fillColors <- rainbow(numgroups)
+      }
+      names(fillColors) <- unique(mygroups)
+      
     }
-    names(fillColors) <- unique(mygroups)
   }
   
   if (missing(shapeVar) || is.null(shapeVar)) {

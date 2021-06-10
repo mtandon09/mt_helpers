@@ -261,7 +261,7 @@ filter_maf_chunked <- function(maf, chunk_lines=10000, savename=NULL,...) {
   
   if ( ! is.null(savename) ) {
     if (!dir.exists(dirname(savename))) {dir.create(dirname(savename), recursive = T)}
-    write.table(filtered_df, file=savename,sep="\t", row.names=F)
+    write.table(filtered_df, file=savename,sep="\t", quote=F, row.names=F)
   }
   maf.filtered <- read.maf(filtered_df, clinicalData = clindata)
   invisible(maf.filtered)
@@ -299,7 +299,7 @@ make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_t
     # return(NA)
   }
   gene_list <- list(freq_genes)
-  reasons <- paste0("Cohort Freq > ",cohort_freq_thresh)
+  reasons <- paste0("Cohort Freq > ",round(cohort_freq_thresh,digits = 3))
   
   ### Collect genes to plot
   genes_for_oncoplot <- data.frame(Hugo_Symbol=c(), reason=c())
@@ -315,13 +315,14 @@ make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_t
                               frac=frac_mut$frac_mut[match(genes_for_oncoplot$Hugo_Symbol, frac_mut$Hugo_Symbol)])
   
   genes_for_oncoplot <- genes_for_oncoplot[order(genes_for_oncoplot$reason, -genes_for_oncoplot$frac),]
-  
+  # browser()
   ### Split the oncoplot based on the reason for picking the gene
   ###   Here, we're only picked based on the frequency
   ###   But this framework is useful for plotting genes picked using various criteria
   split_idx=genes_for_oncoplot$reason
-  split_colors <- rainbow(length(levels(split_idx)))
-  names(split_colors) <- as.character(genes_for_oncoplot$reason[!duplicated(genes_for_oncoplot$reason)])
+  split_colors <- rainbow(length(unique(split_idx)))
+  # names(split_colors) <- as.character(genes_for_oncoplot$reason[!duplicated(genes_for_oncoplot$reason)])
+  names(split_colors) <- unique(split_idx)
   split_colors <- list(Reason=split_colors)
   
   # source("scripts/helper_functions.oncoplot.R")
@@ -350,7 +351,7 @@ make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_t
     stop("No samples to plot.")
   }
   ### Column labels get cluttered if too many samples
-  if (!is.logial(show_sample_names)) {
+  if (!is.logical(show_sample_names)) {
     show_sample_names=T
     if (ncol(oncomat.plot) > 20) {
       show_sample_names=F
@@ -359,10 +360,11 @@ make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_t
   
   myanno=NULL
   if (!is.null(clin_data)) {
+    # browser()
     anno_data <- data.frame(clin_data[match(colnames(oncomat.plot), clin_data$Tumor_Sample_Barcode),],stringsAsFactors = F)
     row.names(anno_data) <- anno_data$Tumor_Sample_Barcode
-    anno_data <- anno_data[,!colnames(anno_data) %in% "Tumor_Sample_Barcode"]
-    if (ncol(anno_data) > 1) {
+    anno_data <- anno_data[,!colnames(anno_data) %in% "Tumor_Sample_Barcode", drop=F]
+    if (ncol(anno_data) > 0) {
       myanno <- HeatmapAnnotation(df=anno_data,col = clin_data_colors)
     }
   }
@@ -393,14 +395,16 @@ make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_t
                                  bottom_annotation = myanno,
                                  top_annotation = top_ha,
                                  left_annotation = left_ha,
-                                 show_column_names = show_sample_names)#,
+                                 show_column_names = show_sample_names,
+                                 alter_fun_is_vectorized = T)#,
   
   if ( ! is.null(savename) ) {
     # save_name <- paste0(out_dir,"/oncoplot.",cohort_freq_thresh,".pdf")
     # browser()
     anno_height=ifelse(!is.null(clin_data), min(c(4, 0.5*ncol(clin_data))), 0)
     onco_height=max(round(0.1*nrow(oncomat.plot),0),4) + anno_height
-    onco_width=onco_height*0.75 + anno_height*1.2
+    # onco_width=onco_height*0.75 + anno_height*1.2
+    onco_width=ncol(oncomat.plot)*0.01 + anno_height*1.2
     pdf(file = savename,height=onco_height,width=onco_width)
     draw(onco_base_default)
     dev.off()

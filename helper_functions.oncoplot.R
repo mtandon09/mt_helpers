@@ -948,7 +948,7 @@ make_overlap_plot <- function(mymaf, use_silent_mutations=F,
 
 
 
-make_single_ribbon_plot <- function(maf, onco_genes=NULL, save_name=NULL, ribbon_color=NULL, 
+make_single_ribbon_plot <- function(maf, onco_genes=NULL, 
                                     topN=20,
                                     pval_high=0.1,  ## All interactions with less than this p-value will be shown
                                     pval_low=0.05,  ## Links with p-value less than this will be highlighted with a dashed border
@@ -956,6 +956,9 @@ make_single_ribbon_plot <- function(maf, onco_genes=NULL, save_name=NULL, ribbon
                                     rotate_plot_degrees=0,   ## For custom rotation
                                     shrink_factor=1.3, # Higher = more shrinkage; use to control whitespace (or lack thereof) around figure 
                                     scale_ribbon_to_fracmut=TRUE,  ## Whether or not to scale ribbon widths to their frequency
+                                    save_name=NULL, 
+                                    ribbon_color=NULL, 
+                                    progress_func=NULL,
                                     sig_colors=NULL,   ## Vector of 4 colors for coloring significance
                                     gene_colors=NULL   ## color(s) for gene blocks
 ) {
@@ -971,14 +974,17 @@ make_single_ribbon_plot <- function(maf, onco_genes=NULL, save_name=NULL, ribbon
   } else {
     pdf(file = NULL)
   }
-  # browser()
-  # if (is.null(onco_genes)) {
-  #   onco_genes = maf@gene.summary$Hugo_Symbol
-  # }
-
+  if (is.function(progress_func)) {
+    progress_func(value=10, detail = "Running maftools' somaticInteractions()")
+  }
+  
   som_int <-  somaticInteractions(maf = maf, top=topN, genes=onco_genes, pvalue = c(pval_low, pval_high))
   dev.off()
-  # browser()
+  
+  if (is.function(progress_func)) {
+    progress_func(value=50, detail = "Collecting co-occurence data...")
+  }
+  
   cooccur_data <- som_int
   cooccur_data$pair_string <- apply(cooccur_data[,1:2], 1, function(x) {paste0(sort(x), collapse="_")})
   cooccur_data$popfrac <- NA
@@ -1027,6 +1033,10 @@ make_single_ribbon_plot <- function(maf, onco_genes=NULL, save_name=NULL, ribbon
     gene_colors <- tmpcolors
   }
   names(gene_colors) <- interacting_genes
+  
+  if (is.function(progress_func)) {
+    progress_func(value=90, detail = "Drawing...")
+  }
   
   if (!is.null(save_name)) {
     if (! dir.exists(dirname(save_name))) {

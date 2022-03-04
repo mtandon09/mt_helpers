@@ -128,7 +128,11 @@ filter_maf_tbl <- function(maftbl, # A tibble for filtering
   require(dplyr)
   df <- as_tibble(maftbl)
   maf_df.raw <- df[df$Hugo_Symbol != "Hugo_Symbol",]
-  maf_df.raw <- maf_df.raw[!df$Hugo_Symbol %in% flag_genes,]
+  
+  mafgenome <- detect_maf_genome(maf_df.raw)[[1]]
+  if (mafgenome %in% c("hg19","hg38")) {
+    maf_df.raw <- maf_df.raw[!df$Hugo_Symbol %in% flag_genes,]
+  }
   
   if ("FILTER" %in% colnames(maf_df.raw)) {
     if (!is.null(grep_vcf_filter_col)) {
@@ -176,7 +180,7 @@ filter_maf_tbl <- function(maftbl, # A tibble for filtering
     if (! "t_alt_count" %in% colnames(maf_df.raw)) {
       maf_df.raw$t_alt_count <- NA
     }
-    if (! "t_alt_count" %in% colnames(maf_df.raw)) {
+    if (! "t_depth" %in% colnames(maf_df.raw)) {
       maf_df.raw$t_depth <- NA
     }
     maf_df.raw$tumor_freq <- as.numeric(maf_df.raw$t_alt_count)/as.numeric(maf_df.raw$t_depth)
@@ -256,7 +260,8 @@ filter_maf_chunked <- function(maf, chunk_lines=10000, savename=NULL,...) {
     }
     filtered_df <- read_tsv_chunked(maf,chunk_size = chunk_lines, col_types = cols(), callback = DataFrameCallback$new(readr_filterfunc), comment="#")
   } else {
-    stop(paste0("Don't know what to do with input type '",class(maf),"'"))
+    # stop(paste0("Don't know what to do with input type '",class(maf),"'"))
+    stop(paste0("MAF file not found: '",maf,"'"))
   }
   
   if ( ! is.null(savename) ) {
@@ -278,9 +283,9 @@ make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_t
   
   ### Structure info about the fraction of the cohort that has each gene mutated
   frac_mut <- data.frame(Hugo_Symbol=maf.filtered@gene.summary$Hugo_Symbol,
-                         frac_mut=(maf.filtered@gene.summary$MutatedSamples/as.numeric(maf.filtered@summary$summary[3])),
+                         # frac_mut=(maf.filtered@gene.summary$MutatedSamples/as.numeric(maf.filtered@summary$summary[3])),
+                         frac_mut=(maf.filtered@gene.summary$AlteredSamples/as.numeric(maf.filtered@summary$summary[3])),
                          stringsAsFactors = F)
-  
   ngene_max=25
   target_frac = sort(frac_mut$frac_mut, decreasing = T)[min(ngene_max,nrow(frac_mut))]
   if (auto_adjust_threshold) {
@@ -417,12 +422,14 @@ make_oncoplot <- function(maf.filtered, cohort_freq_thresh = 0.01, auto_adjust_t
 
 make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1, auto_adjust_threshold=T,
                           use_clinvar_anno=F, title_text="",
-                          genes_to_plot=NULL, include_all=F,
+                          genes_to_plot=NULL, include_all=F, include_all_genes=F,
                           show_sample_names=NULL,
+                          total_mut=T, total_mut_plotarea=unit(2,"inches"),
                           clin_data=NULL,clin_data_colors=NULL,
+                          col_width=0.6,
                           custom_column_order=NULL, full_output=F,
                           savename=NULL) {
-  
+  require(ComplexHeatmap)
   ### Read in MAF file
   # maf.filtered <- read.maf(maf_file)
   if (! is.null(genes_to_plot)) {
@@ -442,7 +449,7 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1, auto_adjust_t
       } else {
         genes_for_oncoplot <- data.frame(Hugo_Symbol=genes_to_plot,Reason="Selected Genes")
       }
-    } else if (class(genes_to_plot)=="data.frame") {
+    } else if (class(genes_to_plot) %in% "data.frame") {
       genes_for_oncoplot <- genes_to_plot
       if (! "Reason" %in% colnames(genes_for_oncoplot)) {
         genes_for_oncoplot$Reason <- "Selected Genes"
@@ -453,14 +460,18 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1, auto_adjust_t
     
     genes_for_oncoplot <- genes_for_oncoplot[,c("Hugo_Symbol","Reason")]
     genes_for_oncoplot <- data.frame(apply(genes_for_oncoplot,2,as.character), stringsAsFactors = F)
-    genes_for_oncoplot <- genes_for_oncoplot[genes_for_oncoplot$Hugo_Symbol %in% maf.filtered@gene.summary$Hugo_Symbol, ]
+    if ( ! include_all_genes ) {
+      genes_for_oncoplot <- genes_for_oncoplot[genes_for_oncoplot$Hugo_Symbol %in% maf.filtered@gene.summary$Hugo_Symbol, ]
+    }
   } else {
     genes_for_oncoplot <- data.frame(Hugo_Symbol=c(), Reason=c())
   }
   
   frac_mut <- data.frame(Hugo_Symbol=maf.filtered@gene.summary$Hugo_Symbol,
-                         frac_mut=(maf.filtered@gene.summary$MutatedSamples/as.numeric(maf.filtered@summary$summary[3])),
+                         frac_mut=(maf.filtered@gene.summary$AlteredSamples/as.numeric(maf.filtered@summary$summary[3])),
                          stringsAsFactors = F)
+  # browser()
+  
   if (! is.null(cohort_freq_thresh)) {
     ### Structure info about the fraction of the cohort that has each gene mutated
     # browser()
@@ -473,10 +484,11 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1, auto_adjust_t
     }
     if (length(freq_genes) > 200) {
       # target_frac = round(sort(frac_mut$frac_mut, decreasing = T)[min(50,nrow(frac_mut))],2)
-      ngene_max=25
+      ngene_max=100
       # auto_adjust_threshold=T
-      target_frac = sort(frac_mut$frac_mut, decreasing = T)[min(ngene_max,nrow(frac_mut))]
+      target_frac = round(sort(frac_mut$frac_mut, decreasing = T)[min(ngene_max,nrow(frac_mut))],digits = 2)
       if (auto_adjust_threshold) {
+        # browser()
         cohort_freq_thresh <- max(c(cohort_freq_thresh,target_frac))
       }
       warning(paste0("Too many genes for oncoplot. Setting the cohort mutated fraction to > ", target_frac))
@@ -514,9 +526,9 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1, auto_adjust_t
   # source("scripts/helper_functions.oncoplot.R")
   ### Make matrix to plot, and order it correctly
   if (use_clinvar_anno) {
-    oncomat <- createOncoMatrix_CLINSIG(maf.filtered, g=genes_for_oncoplot$Hugo_Symbol, add_missing = include_all)$oncoMatrix
+    oncomat <- createOncoMatrix_CLINSIG(maf.filtered, g=genes_for_oncoplot$Hugo_Symbol, add_missing = T)$oncoMatrix
   } else {
-    oncomat <- createOncoMatrix(maf.filtered, g=genes_for_oncoplot$Hugo_Symbol, add_missing = include_all)$oncoMatrix
+    oncomat <- createOncoMatrix(maf.filtered, g=genes_for_oncoplot$Hugo_Symbol, add_missing = T)$oncoMatrix
   }
   oncomat <- oncomat[match(genes_for_oncoplot$Hugo_Symbol,rownames(oncomat)), , drop=F]
   onco_genes <- rownames(oncomat)
@@ -531,9 +543,19 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1, auto_adjust_t
     empty_data <- matrix(data = "", nrow=nrow(oncomat), ncol=length(extra_samples), dimnames=list(rownames(oncomat), extra_samples))
     oncomat <- cbind(oncomat, empty_data)
   }
+  # if (include_all_genes) {
+  #   ### createOncoMatrix drops empty samples, so this adds them back in
+  #   # all_wes_samples <- as.character(sample_info.exome$Tumor_Sample_Barcode[!is.na(sample_info.exome$Tumor_Sample_Barcode)])
+  #   all_genes <- unique(input_genes$Hugo_Symbol)
+  #   extra_genes <- setdiff(all_genes, rownames(oncomat) )
+  #   print(paste0("Adding back ", length(extra_genes), " genes with no reported mutations..."))
+  #   empty_data <- matrix(data = "", nrow=length(extra_genes), ncol=ncol(oncomat), dimnames=list(extra_genes, colnames(oncomat)))
+  #   oncomat <- rbind(oncomat, empty_data)
+  # }
   
   if (!is.null(custom_column_order)) {
     custom_order <- match(custom_column_order, colnames(oncomat), nomatch=0)
+    # browser()
     oncomat <- oncomat[,custom_order]
   }
   oncomat.plot <- oncomat
@@ -577,16 +599,39 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1, auto_adjust_t
                                          rev(order(colSums(variant_type_data))), drop=F]
   # browser()
   var_anno_colors <- mutation_colors[match(colnames(variant_type_data), names(mutation_colors))]
-  ha = HeatmapAnnotation(Burden = anno_barplot(variant_type_data, gp = gpar(fill = var_anno_colors), border = F))
-  # }
   
-  pct_anno <- paste0(prettyNum(frac_mut$frac_mut[match(onco_genes, frac_mut$Hugo_Symbol)]*100,digits=1),"%")
+  ha = NULL
+  if (!is.null(total_mut)) {
+    if (file.exists(as.character(total_mut))) {
+      mb_covered <- compute_exome_coverage(total_mut)/1e6
+      variant_type_data <- variant_type_data/mb_covered
+      total_mut=T
+    } else {
+      total_mut=F
+    }
+    if (total_mut) {
+      ha = HeatmapAnnotation(Burden = anno_barplot(variant_type_data, 
+                                                   gp = gpar(fill = var_anno_colors), 
+                                                   border = F,
+                                                   height=total_mut_plotarea)
+                             
+                             )
+    }
+  }
+  # }
+  pct_mut <- frac_mut$frac_mut[match(onco_genes, frac_mut$Hugo_Symbol)]*100
+  pct_mut[is.na(pct_mut)] <- 0
+  pct_anno <- paste0(prettyNum(pct_mut,digits=1),"%")
   left_ha = rowAnnotation("Cohort Pct"=anno_text(pct_anno,gp = gpar(cex=0.7)), show_annotation_name=F)
   
   myanno=NULL
   if (!is.null(clin_data)) {
     # browser()
+    if (! "Tumor_Sample_Barcode" %in% colnames(clin_data)) {
+      stop("'clin_dat' must contain a column named 'Tumor_Sample_Barcode'.")
+    }
     anno_data <- data.frame(clin_data[match(colnames(oncomat.plot), clin_data$Tumor_Sample_Barcode, nomatch=0),],stringsAsFactors = F)
+    rownames(anno_data) <- anno_data$Tumor_Sample_Barcode
     extra_ids <-setdiff(colnames(oncomat.plot), rownames(anno_data))
     emptydat <- data.frame(matrix(nrow=length(extra_ids), ncol=ncol(anno_data)), stringsAsFactors = F)
     colnames(emptydat) <- colnames(anno_data)
@@ -604,7 +649,10 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1, auto_adjust_t
   ### Make the oncoplot
   # browser()
   
-  onco_base_default <- oncoPrint(oncomat.plot, alter_fun = alter_fun, col=mutation_colors, row_order=1:nrow(oncomat.plot),
+  onco_base_default <- oncoPrint(oncomat.plot, alter_fun = alter_fun, 
+                                 col=mutation_colors, 
+                                 # row_order=1:nrow(oncomat.plot),
+                                 column_order = 1:ncol(oncomat.plot),
                                  name="oncoplot",
                                  row_title=title_text,
                                  show_pct = F,
@@ -614,6 +662,7 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1, auto_adjust_t
                                  right_annotation = left_ha,
                                  top_annotation = ha,
                                  show_column_names = show_sample_names)#,
+  # draw(onco_base_default)
   # column_names_rot = 30,
   # column_gap = unit(0.0001,"npc"),
   # width = unit(0.75, "npc"))
@@ -627,8 +676,8 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1, auto_adjust_t
   
   if ( ! is.null(savename) ) {
     # save_name <- paste0(out_dir,"/oncoplot.",cohort_freq_thresh,".pdf")
-    onco_height=max(round(0.15*nrow(oncomat.plot),0),6)
-    onco_width=max(c(onco_height*0.75,max(round(0.4*ncol(oncomat.plot),0))))
+    onco_height=max(round(0.2*nrow(oncomat.plot),0),6)
+    onco_width=max(c(onco_height*0.6,max(round(col_width*ncol(oncomat.plot),0))))
     pdf(file = savename,height=onco_height,width=onco_width)
     draw(onco_base_default)
     dev.off()
@@ -638,7 +687,10 @@ make_oncoplot2 <- function(maf.filtered, cohort_freq_thresh = 0.1, auto_adjust_t
 }
 
 
-make_burden_plot <- function(maf.filtered, plotType=NULL, mb_covered=NULL, save_data_to_file=NULL) {
+make_burden_plot <- function(maf.filtered, plotType=NULL, mb_covered=NULL, 
+                             sample_order=NULL,
+                             save_data_to_file=NULL, 
+                             add_median=T) {
   
   require(dplyr)
   num_var_data <- maf.filtered@variants.per.sample
@@ -650,6 +702,8 @@ make_burden_plot <- function(maf.filtered, plotType=NULL, mb_covered=NULL, save_
     print("Normalizing mutation count by covered bases...")
     num_var_data$mut_burden <- num_var_data$mut_burden/mb_covered
     y_label_text="Mutation Burden (mutations/Mb)"
+  } else {
+    mb_covered=1
   }
   
   nsamples=nrow(num_var_data)
@@ -677,21 +731,23 @@ make_burden_plot <- function(maf.filtered, plotType=NULL, mb_covered=NULL, save_
   variant_type_per_sample <- as.data.frame(maf.filtered@variant.classification.summary)
   var_type.melt <- reshape2::melt(variant_type_per_sample, id.vars="Tumor_Sample_Barcode",variable.name="classification",value.name="mutation_count")
   var_type.melt$mut_burden <- var_type.melt$mutation_count
-  if (is.numeric(mb_covered)) {
-    var_type.melt$mut_burden <- var_type.melt$mut_burden/mb_covered
-  }
-  median_mut_burdens <- data.frame(median=median(var_type.melt[var_type.melt$classification== "total","mut_burden"]))
+  var_type.melt$mut_burden <- var_type.melt$mut_burden/mb_covered
+  
   
   plotdata <- var_type.melt[var_type.melt$classification != "total",]
+  tsb_order <- variant_type_per_sample$Tumor_Sample_Barcode[order(variant_type_per_sample$total, decreasing = T)]
+  if (!is.null(sample_order)) {
+    tsb_order <- sample_order
+  }
   plotdata$Tumor_Sample_Barcode <- factor(as.character(plotdata$Tumor_Sample_Barcode),
-                                          levels=variant_type_per_sample$Tumor_Sample_Barcode[order(variant_type_per_sample$total, decreasing = T)])
+                                          levels=tsb_order)
   plotdata$classification <- gsub("_"," ",plotdata$classification)
   
   class_means <- plotdata %>% group_by(classification) %>% summarise(mean=mean(mut_burden))
   plotdata$classification <- factor(as.character(plotdata$classification),
                                     levels=class_means$classification[order(class_means$mean, decreasing = F)])
   
-  my_class_colors <- mutation_colors
+  my_class_colors <- mutation_colors[names(mutation_colors) %in% levels(plotdata$classification)]
   
   plotdata$hoverlabel <- paste0("Sample: ",plotdata$Tumor_Sample_Barcode,"\nMutations: ", plotdata$mut_burden)
   
@@ -719,9 +775,6 @@ make_burden_plot <- function(maf.filtered, plotType=NULL, mb_covered=NULL, save_
         panel.border = element_blank(),
         panel.grid.minor.y = element_blank(),
         panel.grid.major.x = element_blank())
-    if (nsamples > 1) {
-      burden_plot <- burden_plot + geom_hline(data = median_mut_burdens, aes(yintercept=median),linetype="dashed", color="grey60")
-    }
   } else {
   
     require(ggbeeswarm)
@@ -748,7 +801,17 @@ make_burden_plot <- function(maf.filtered, plotType=NULL, mb_covered=NULL, save_
             axis.ticks.x = element_blank())
   }
   
+  median_val=median(var_type.melt[var_type.melt$classification== "total","mut_burden"])
+  if (is.numeric(add_median)) {
+    median_val=add_median
+    add_median=T
+  }
   
+  if (add_median) {
+    median_mut_burdens <- data.frame(median=median_val)
+    burden_plot <- burden_plot + geom_hline(data = median_mut_burdens, aes(yintercept=median),linetype="dashed", color="grey60")
+  }
+      
   
   ## Write data to a file for external plotting if desired
   if (!is.null(save_data_to_file)) {
@@ -836,11 +899,11 @@ make_overlap_plot <- function(mymaf, use_silent_mutations=F,
   rownames(pw_combinations) <- names(mutations_list)
   for ( row_idx in 1:nrow(pw_combinations) ) {
     for (col_idx in 1:ncol(pw_combinations) ) {
-      if (!row_idx==col_idx) {
+      # if (!row_idx==col_idx) {
         # overlap_val=sum(mutations_list[[ rownames(pw_combinations)[row_idx] ]]$id_str %in% mutations_list[[colnames(pw_combinations)[col_idx] ]]$id_str)
         overlap_val=length(intersect(mutations_list[[ rownames(pw_combinations)[row_idx] ]],mutations_list[[colnames(pw_combinations)[col_idx] ]]))
         pw_combinations[row_idx,col_idx]=overlap_val
-      }
+      # }
     }
   }
   
@@ -1001,18 +1064,25 @@ make_single_ribbon_plot <- function(maf, onco_genes=NULL, save_name=NULL, ribbon
 
 
 detect_maf_genome <- function(maf) {
-  if (!"NCBI_Build" %in% colnames(maf@data)) {
+  if ("data.frame" %in% class(maf)) {
+    maf_tbl <- maf
+  } else if ("MAF" %in% class(maf)) {
+    maf_tbl <- maf@data
+  } else {
+    stop("Argument 'maf' must be a data.frame, data.table or MAF object")
+  }
+  if (!"NCBI_Build" %in% colnames(maf_tbl)) {
     warning("No genome information in MAF obj.")
     return(NA)
   }
-  my_genome = unique(maf@data$NCBI_Build)
+  my_genome = unique(maf_tbl$NCBI_Build)
   if (length(my_genome) > 1) {
     warning("Multiple genomes listed in MAF obj. Trying the first one")
     my_genome <- my_genome[1]
   }
   return_genome <- switch(my_genome, GRCh38 = "hg38", GRCh37 = "hg19", 
                           GRCm38 = "mm10", NA)
-  my_chrs <- unique(maf@data$Chromosome)
+  my_chrs <- unique(maf_tbl$Chromosome)
   add_chr = sum(grepl("^chr", my_chrs)) < length(my_chrs)
   pkg_prefix = ifelse(return_genome == "mm10", "BSgenome.Mmusculus.UCSC.", 
                       "BSgenome.Hsapiens.UCSC.")
@@ -1024,7 +1094,8 @@ detect_maf_genome <- function(maf) {
 ### Cretaes matrix for oncoplot from maf file
 ### Adapted from maftools: https://github.com/PoisonAlien/maftools/blob/master/R/oncomatrix.R
 createOncoMatrix = function(m, g = NULL, chatty = TRUE, add_missing = FALSE){
-  
+  require(maftools)
+  require(dplyr)
   if(is.null(g)){
     stop("Please provde atleast two genes!")
   }
@@ -1150,7 +1221,8 @@ createOncoMatrix = function(m, g = NULL, chatty = TRUE, add_missing = FALSE){
 ### Adapted from maftools: https://github.com/PoisonAlien/maftools/blob/master/R/oncomatrix.R
 ### Modified to capture ClinVar annotations
 createOncoMatrix_CLINSIG = function(m, g = NULL, chatty = TRUE, add_missing = FALSE){
-  
+  require(maftools)
+  require(dplyr)
   if(is.null(g)){
     stop("Please provde atleast two genes!")
   }
@@ -1307,6 +1379,7 @@ make_variant_table <- function(maf.filter, use_syn=F, extra_cols=c()) {
                       "Normal Depth"="n_depth",
                       "Normal Ref Depth"="n_ref_count",
                       "Normal Alt Depth"="n_alt_count",
+                      "Normal Alt Frequency"="norm_freq",
                       "Tumor Depth"="t_depth",
                       "Tumor Ref Depth"="t_ref_count",
                       "Tumor Alt Depth"="t_alt_count",
@@ -1342,7 +1415,7 @@ compute_exome_coverage <- function(targets_bed_file, out_file=NULL) {
   ##### This function will read the target regions BED file and
   #####  compute the sum of the lengths of the regions
   require(GenomicRanges)
-  
+
   ## This bit will only read in the first three columns
   num_fields <- max(count.fields(targets_bed_file, sep = "\t"))
   my_classes <- c("character","integer","integer", rep("NULL", num_fields-3))
@@ -1356,7 +1429,7 @@ compute_exome_coverage <- function(targets_bed_file, out_file=NULL) {
   bed.gr <- makeGRangesFromDataFrame(bed_data)
   
   ## Collapse any overlapping features
-  bed.gr.collapse <- reduce(bed.gr)
+  bed.gr.collapse <- GenomicRanges::reduce(bed.gr)
   
   ## Sum up the widths of each range
   total_exome_coverage = sum(width(bed.gr.collapse))

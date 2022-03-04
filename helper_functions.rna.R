@@ -92,7 +92,7 @@ makeVolcano <- function(myresults,labelTop=TRUE,nLabel=20,pval_cutoff = 0.05, pv
     myplot <- myplot + geom_label_repel(data=myresults.label,aes(x=logFC,y=pval,label=gene))
   }
   if (saveplot) {
-    ggsave(filename=savename,plot=myplot)
+    ggsave(filename=savename,plot=myplot, width=7, height=6)
   } else {
     print(myplot)
   }
@@ -230,8 +230,11 @@ makePCAplot_MT <- function(expr_vals,pheno.data=NULL,topNgenes=NULL, sampleLabel
   if (missing(topNgenes) || is.null(topNgenes)) {
     topNgenes <- nrow(expr_vals)
   }
+  myind <- order(apply(expr_vals, 1, var), decreasing = T)
+  myind <- myind[1:min(c(topNgenes, nrow(expr_vals)))]
+  expr_vals <- expr_vals[myind,]
   
-  browser()
+  # browser()
   # if (missing(fillVar) || is.null(fillVar)) {
   #   if ("condition" %in% colnames(pheno.data)) {
   #     fillVar = "condition"
@@ -245,11 +248,16 @@ makePCAplot_MT <- function(expr_vals,pheno.data=NULL,topNgenes=NULL, sampleLabel
   if (is.null(fillVar)) {
     fillVar="fillVar"
   }
-  
+  continuous_color=F
   if (missing(fillColors) || is.null(fillColors)) {
     colordata <- pheno.data[,fillVar]
-    
     if (is.numeric(colordata)) {
+      continuous_color=T
+      colorpalette <- "PiYG"
+      if (min(colordata, na.rm=T) >= 0) {
+        colorpalette <- "Blues"
+      }
+      fillColors <- setNames(brewer.pal(9,colorpalette)[c(1,9)],c("low","high"))
       
     } else {
       numgroups <- length(unique(colordata))
@@ -259,7 +267,7 @@ makePCAplot_MT <- function(expr_vals,pheno.data=NULL,topNgenes=NULL, sampleLabel
       } else {
         fillColors <- rainbow(numgroups)
       }
-      names(fillColors) <- unique(mygroups)
+      names(fillColors) <- unique(colordata)
       
     }
   }
@@ -288,7 +296,7 @@ makePCAplot_MT <- function(expr_vals,pheno.data=NULL,topNgenes=NULL, sampleLabel
   # if (length(no_var_rows) > 0) {
   no_var_rows <- unlist(apply(pcadata, 1, var)==0)
   if (sum(no_var_rows) > 0) {
-    browser()
+    # browser()
     print("Some rows have zero variance; turning off unit scaling of PCs...")
     scale_prcmp = FALSE
   } else {
@@ -355,15 +363,22 @@ makePCAplot_MT <- function(expr_vals,pheno.data=NULL,topNgenes=NULL, sampleLabel
                              ifelse(npoints > 100, 2, 
                                     ifelse(npoints > 10, 4, pointsize))))
   pcaplot <- ggplot(plotdata, aes_string(x = paste0("PC",whichPCs[1]), y = paste0("PC",whichPCs[2]), color = fillVar)) +
-    geom_point(aes_string(shape=shapeVar),size = pointsize, alpha=0.6, stroke = 3) + 
-    guides(color = guide_legend(override.aes = list(size=3, alpha=1, shape=15))) +
+    geom_point(aes_string(shape=shapeVar),size = pointsize, alpha=0.6, stroke = 2) + 
+    # guides(color = guide_legend(override.aes = list(size=3, alpha=1, shape=15))) +
     # scale_color_brewer(palette = "Paired") +
-    scale_color_manual(values = fillColors) +
+    # scale_color_manual(values = fillColors) +
     scale_shape_manual(values = shapeVals) +
     xlab(paste0("PC1 (Variance explained: ", var_explained[1],")")) + 
     ylab(paste0("PC2 (Variance explained: ", var_explained[2],")")) +
     ggtitle(paste0("PCA plot (n=",ncol(pcadata),", ",topNgenes," genes)")) +
     theme_linedraw(base_size = 14)
+  
+  if (continuous_color) {
+    pcaplot <- pcaplot + scale_color_gradient(low=fillColors[1], high=fillColors[2])
+  } else {
+    pcaplot <- pcaplot + scale_color_manual(values = fillColors) +
+      guides(color = guide_legend(override.aes = list(size=3, alpha=1, shape=15)))
+  }
   
   if (sampleLabel && !make_plotly) {
     pcaplot <- pcaplot + geom_label_repel(aes(label = sample_id))

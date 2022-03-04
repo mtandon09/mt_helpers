@@ -270,8 +270,11 @@ make_mut_signature_heatmap <- function(mymaf,use_silent_mutations=F, clinVarName
                     # legend_height = unit(4, "cm"),
                     legend_direction = "horizontal"
                   ),
-                  show_row_names=T, row_names_gp = gpar(fontsize = 5),
-                  show_column_names = add_sample_names)
+                  show_row_names=T, 
+                  row_names_gp = gpar(fontsize = 5),
+                  show_column_names = add_sample_names,
+                  column_names_gp = gpar(fontsize = 8)
+                  )
   
   if ( ! is.null(savename) ) {
     # save_name <- paste0(out_dir,"/oncoplot.",cohort_freq_thresh,".pdf")

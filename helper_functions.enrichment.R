@@ -3,10 +3,16 @@ add_category_to_dotplot <- function(reactome_enrich_res, show_n_path = 20, id_co
 #### Takes a reactomePA enrichment object and adds Reactome categories (top level of hierarchy)
 #### Returns a data frame with the added info, a plot of the results, and the modified enrichment object
   
-  ck.reactome.mod <- reactome_enrich_res   # The enrichment results
-  reactome_data <- load_reactome_data()    # Function to load (and create) reactome annotation data
-  mydf <- attr(ck.reactome.mod, "compareClusterResult")  # This extracts the data.frame storing the info in the enrichment object
+  if (class(reactome_enrich_res) %in% c("compareClusterResult")) {
+    ck.reactome.mod <- reactome_enrich_res   # The enrichment results
+    mydf <- attr(ck.reactome.mod, "compareClusterResult")  # This extracts the data.frame storing the info in the enrichment object
+  } else if (class(reactome_enrich_res) %in% c("data.frame")) {
+    required_columns <- c("ID", "geneID","Description","contrast")
+    mydf <- reactome_enrich_res
+    stopifnot(all(required_columns %in% colnames(mydf)))
+  }
   
+  reactome_data <- load_reactome_data()    # Function to load (and create) reactome annotation data
   ## Add category annotation column
   mydf$category <- as.character(reactome_data$categoryName[match(mydf$ID, reactome_data$reactomeID)])
   

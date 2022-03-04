@@ -120,7 +120,7 @@ tcga_clinical_colors <- function(tcga_clin_data,
     switch(featurename,
            "ajcc_pathologic_stage"={
               stages=sort(unique(anno_data$ajcc_pathologic_stage))
-              return_val <- setNames(brewer.pal(n = length(stages), name = "Reds"), stages)
+              return_val <- setNames(colorRampPalette(brewer.pal(n = 9, name = "Reds"))(length(stages)), stages)
               return_val <- return_val[!is.na(names(return_val))]
            },
            "age_at_diagnosis"={

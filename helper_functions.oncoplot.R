@@ -949,6 +949,7 @@ make_overlap_plot <- function(mymaf, use_silent_mutations=F,
 
 
 make_single_ribbon_plot <- function(maf, onco_genes=NULL, save_name=NULL, ribbon_color=NULL, 
+                                    topN=20,
                                     pval_high=0.1,  ## All interactions with less than this p-value will be shown
                                     pval_low=0.05,  ## Links with p-value less than this will be highlighted with a dashed border
                                     plot_frac_mut_axis=TRUE,  ## Whether or not to draw a numerical axis on the perimeter
@@ -975,7 +976,7 @@ make_single_ribbon_plot <- function(maf, onco_genes=NULL, save_name=NULL, ribbon
   #   onco_genes = maf@gene.summary$Hugo_Symbol
   # }
 
-  som_int <-  somaticInteractions(maf = maf, genes=onco_genes, pvalue = c(pval_low, pval_high))
+  som_int <-  somaticInteractions(maf = maf, top=topN, genes=onco_genes, pvalue = c(pval_low, pval_high))
   dev.off()
   # browser()
   cooccur_data <- som_int

@@ -141,7 +141,7 @@ tcga_clinical_colors <- function(tcga_clin_data,
            },
            "race"={
              races=sort(unique(anno_data$race))
-             return_val <- setNames(rev(brewer.pal(n = length(races), name = "Set1")), races)
+             return_val <- setNames(rev(colorRampPalette(brewer.pal(n = 9, name = "Set1"))(length(races))), races)
              return_val <- return_val[!is.na(names(return_val))]
            },
            "vital_status"={
@@ -150,7 +150,7 @@ tcga_clinical_colors <- function(tcga_clin_data,
            },
            "tissue_or_organ_of_origin"={
              tissues=sort(unique(anno_data$tissue_or_organ_of_origin))
-             return_val <- setNames(brewer.pal(n = length(tissues), name = "Dark2"), tissues)
+             return_val <- setNames(colorRampPalette(brewer.pal(n = 8, name = "Dark2"))(length(tissues)), tissues)
              return_val <- return_val[!is.na(names(return_val))]
            },{
              warning(paste0("'",featurename,"' not found in columns of clinical data provided."))

@@ -969,10 +969,10 @@ make_single_ribbon_plot <- function(maf, onco_genes=NULL,
     if (! dir.exists(dirname(save_name))) {
       dir.create(dirname(save_name))
     }
-    plot_file <- gsub(".pdf",".interactions.pdf",save_name)
-    pdf(file = plot_file,height=5,width=5)
+    plot_file <- gsub(".png",".maftools.png",save_name)
+    png(file = plot_file,height=7,width=7, units = "in", res=400)
   } else {
-    pdf(file = NULL)
+    png(file = NULL)
   }
   if (is.function(progress_func)) {
     progress_func(value=10, detail = "Running maftools' somaticInteractions()")
@@ -980,7 +980,6 @@ make_single_ribbon_plot <- function(maf, onco_genes=NULL,
   
   som_int <-  somaticInteractions(maf = maf, top=topN, genes=onco_genes, pvalue = c(pval_low, pval_high))
   dev.off()
-  
   if (is.function(progress_func)) {
     progress_func(value=50, detail = "Collecting co-occurence data...")
   }
@@ -1042,7 +1041,7 @@ make_single_ribbon_plot <- function(maf, onco_genes=NULL,
     if (! dir.exists(dirname(save_name))) {
       dir.create(dirname(save_name))
     }
-    pdf(file = save_name,height=7,width=7)
+    png(file = save_name,height=8,width=8, units = "in", res=400)
   }
 
   circos.clear()
@@ -1062,7 +1061,7 @@ make_single_ribbon_plot <- function(maf, onco_genes=NULL,
     circos.text(CELL_META$xcenter, CELL_META$ylim[1], CELL_META$sector.index, 
                 facing = "clockwise", niceFacing = TRUE, adj = c(-0.5, 0.5))
   }, bg.border = NA) # here set bg.border to NA is important
-  draw(color_legend, x = unit(0.05, "npc"), y = unit(0.5, "npc"), just = c("left"))
+  draw(color_legend, x = unit(0.05, "npc"), y = unit(0.1, "npc"), just = c("left"))
   # draw(line_legend, x = unit(0.5, "npc"), y = unit(0.97, "npc"), just = c("center"))
   
   if (!is.null(save_name)) {

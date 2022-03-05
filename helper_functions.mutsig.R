@@ -1,12 +1,24 @@
 
-load_cosmic_data <- function(signatures_file=file.path("~","Documents","helper_functions","cosmic_data","COSMIC_Mutational_Signatures_v3.1.xlsx"),
-                             etio_data_xlsx=file.path("~","Documents","helper_functions","cosmic_data","COSMIC_signature_etiology.xlsx"),
+load_cosmic_data <- function(signatures_file=file.path("data","cosmic_data","COSMIC_Mutational_Signatures_v3.1.xlsx"),
+                             etio_data_xlsx=file.path("data","cosmic_data","COSMIC_signature_etiology.xlsx"),
                              signature_type="SBS") {
   
   require(openxlsx)
   # signatures_csv <- file.path("data","cosmic","sigProfiler_exome_SBS_signatures.csv")
   # cosmic_signatures = read.table(signatures_csv, sep = ",", header = TRUE, stringsAsFactors = F)
-  if (! file.exists(signatures_file)) {stop("Can't find signatures file.")}
+  if (! file.exists(signatures_file)) {
+    my_sig_url="https://github.com/mtandon09/mt_helpers/blob/main/cosmic/COSMIC_Mutational_Signatures_v3.1.xlsx?raw=true"
+    my_etio_url="https://github.com/mtandon09/mt_helpers/blob/main/cosmic/COSMIC_signature_etiology.xlsx?raw=true"
+    
+    if (!dir.exists(dirname(signatures_file))) {
+      dir.create(dirname(signatures_file), recursive = T)
+    }
+    if (!dir.exists(dirname(etio_data_xlsx))) {
+      dir.create(dirname(etio_data_xlsx), recursive = T)
+    }
+    download.file(my_sig_url, destfile = signatures_file)
+    download.file(my_etio_url, destfile = etio_data_xlsx)
+  }
   cosmic_signatures = read.xlsx(signatures_file, sheet=paste0(signature_type,"_GRCh37"))
   if (signature_type=="SBS") {
     cosmic_signatures$Somatic.Mutation.Type <- paste0(substr(cosmic_signatures$Subtype, 1, 1),
@@ -19,41 +31,41 @@ load_cosmic_data <- function(signatures_file=file.path("~","Documents","helper_f
                               Etiology_category = NA,
                               row.names=c(),
                               stringsAsFactors = F)
-  if (file.exists(etio_data_xlsx)) {
-    if (signature_type %in% getSheetNames(etio_data_xlsx)) {
-      etiology_data_raw <- read.xlsx(etio_data_xlsx, sheet=1)
-      etiology_data <- data.frame(Etiology=etiology_data_raw$Category_specific,
-                                  Etiology_category = etiology_data_raw$Category_broad,
-                                  row.names=etiology_data_raw$signature,
-                                  stringsAsFactors = F)
-      
-      categories <- sort(unique(etiology_data$Etiology_category))
-      library(ggsci)
-      # category_colors <- setNames(pal_rickandmorty((palette = c("schwifty")))(length(categories)), categories)
-      category_colors <- setNames(pal_aaas((palette = c("default")))(length(categories)), categories)
-      # category_colors <- setNames(pal_d3((palette = c("category10")))(length(categories)), categories)
-      # category_colors <- setNames(pal_futurama((palette = c("planetexpress")))(length(categories)), categories)
-      # library(ggthemes)
-      # category_colors <- setNames(gdocs_pal()(length(categories)), categories)
-      # category_colors <- setNames(calc_pal()(length(categories)), categories)
-      
-      # mycat=categories[1]
-      etiology_colors <- list(Etiology=unlist(lapply(categories, function(mycat) {
-        subcats <- unique(etiology_data$Etiology[etiology_data$Etiology_category==mycat])
-        catcolor=category_colors[mycat]
-        myrgb <- colorRamp(c(catcolor, "white"))(0:length(subcats)/length(subcats))[1:(length(subcats)), , drop=F]
-        rownames(myrgb) <- subcats
-        hexcolor <- apply(myrgb, 1, function(x) {rgb(x[1], x[2], x[3], maxColorValue = 255)})
-        return(hexcolor)
-      })))
-      
-      
-      rowOrder=order(etiology_data$Etiology_category)
-      etiology_data <- etiology_data[rowOrder, ,drop=F]
-      etiology_data$annotation_color <- etiology_colors$Etiology[match(etiology_data$Etiology, names(etiology_colors$Etiology))]
-      etiology_data$category_color <- category_colors[match(etiology_data$Etiology_category, names(category_colors))]
-    }
+
+  if (signature_type %in% getSheetNames(etio_data_xlsx)) {
+    etiology_data_raw <- read.xlsx(etio_data_xlsx, sheet=1)
+    etiology_data <- data.frame(Etiology=etiology_data_raw$Category_specific,
+                                Etiology_category = etiology_data_raw$Category_broad,
+                                row.names=etiology_data_raw$signature,
+                                stringsAsFactors = F)
+    
+    categories <- sort(unique(etiology_data$Etiology_category))
+    library(ggsci)
+    # category_colors <- setNames(pal_rickandmorty((palette = c("schwifty")))(length(categories)), categories)
+    category_colors <- setNames(pal_aaas((palette = c("default")))(length(categories)), categories)
+    # category_colors <- setNames(pal_d3((palette = c("category10")))(length(categories)), categories)
+    # category_colors <- setNames(pal_futurama((palette = c("planetexpress")))(length(categories)), categories)
+    # library(ggthemes)
+    # category_colors <- setNames(gdocs_pal()(length(categories)), categories)
+    # category_colors <- setNames(calc_pal()(length(categories)), categories)
+    
+    
+    etiology_colors <- list(Etiology=unlist(lapply(categories, function(mycat) {
+      subcats <- unique(etiology_data$Etiology[etiology_data$Etiology_category==mycat])
+      catcolor=category_colors[mycat]
+      myrgb <- colorRamp(c(catcolor, "white"))(0:length(subcats)/length(subcats))[1:(length(subcats)), , drop=F]
+      rownames(myrgb) <- subcats
+      hexcolor <- apply(myrgb, 1, function(x) {rgb(x[1], x[2], x[3], maxColorValue = 255)})
+      return(hexcolor)
+    })))
+    
+    
+    rowOrder=order(etiology_data$Etiology_category)
+    etiology_data <- etiology_data[rowOrder, ,drop=F]
+    etiology_data$annotation_color <- etiology_colors$Etiology[match(etiology_data$Etiology, names(etiology_colors$Etiology))]
+    etiology_data$category_color <- category_colors[match(etiology_data$Etiology_category, names(category_colors))]
   }
+  
   return(list(signatures=cosmic_signatures,etio=etiology_data))
   
 }

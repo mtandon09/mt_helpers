@@ -1,45 +1,54 @@
-get_tcga_data <- function(tcga_dataset="ACC",save_folder=file.path("data"), variant_caller="mutect2") {
+get_tcga_data <- function(tcga_dataset="ACC",save_folder=file.path("data"), variant_caller="mutect2", progress_func=NULL) {
   
   require(TCGAbiolinks)
   message("Getting TCGA MAF...")
-  if (length(tcga_dataset) > 1) {
-    allmafs <- lapply(tcga_dataset, get_tcga_data, save_folder=save_folder, variant_caller=variant_caller)
-    mergedmafs <- merge_mafs(allmafs)
-    return(mergedmafs)
+  n_requested=length(tcga_dataset)
+  allmafs=as.list(rep(NA, length(n_requested)))
+  for (idx in 1:n_requested) {
+    currdataset=tcga_dataset[idx]
+    if (is.function(progress_func)) {
+      prog=80*(1/n_requested)*(idx-1) + 10
+      progress_func(value=prog, detail = paste0("Fetching ", idx, " of ", n_requested, "(", currdataset, ")"))
+    }
+    currdataset <- gsub("TCGA-","",currdataset)
+    save_folder=file.path(save_folder,paste0("TCGA_",currdataset),variant_caller)
+    tcga_maf_file=file.path(save_folder,paste0("TCGA_",currdataset,".",variant_caller,".maf"))
+    
+    if (!file.exists(tcga_maf_file)) {
+      if(!dir.exists(save_folder)) {dir.create(save_folder, recursive = T)}
+      tcga_maf <- GDCquery_Maf(currdataset, 
+                               pipelines = variant_caller, 
+                               directory = save_folder)
+      tcga_maf$Tumor_Sample_Barcode_original <- tcga_maf$Tumor_Sample_Barcode
+      ### The codes in the MAF are specimen IDs, but clinical data is provided by patient IDs
+      ## The correct solution would be get the biospecimen data and clinical data and link it together to get patient IDs
+      ## But here I'm just chopping the specimen part of the code off
+      tcga_maf$Tumor_Sample_Barcode <-unlist(lapply(strsplit(tcga_maf$Tumor_Sample_Barcode, "-"), function(x) {paste0(x[1:3], collapse="-")}))
+      tcga_maf$caller <- variant_caller
+      write.table(tcga_maf, file=tcga_maf_file, quote=F, sep="\t", row.names = F, col.names = T)
+    }
+    
+    
+    message("Adding clinical data")
+    tcga_clinical_file=file.path(save_folder,paste0("TCGA_",tcga_dataset,".clinical.txt"))
+    if (! file.exists(tcga_clinical_file)) {
+      if (!dir.exists(dirname(tcga_clinical_file))) {dir.create(dirname(tcga_clinical_file), recursive = T)}
+      tcga_clinical <- GDCquery_clinic(project = paste0("TCGA-",tcga_dataset), type = "clinical")
+      write.table(tcga_clinical, file=tcga_clinical_file, quote=T, sep="\t", row.names = F, col.names = T)
+    }
+    
+    tcga_clin_data <- read.table(tcga_clinical_file, sep="\t",header = T,stringsAsFactors = F)
+    tcga_clin_data$Tumor_Sample_Barcode <- tcga_clin_data$bcr_patient_barcode
+    tcga_maf <- read.maf(tcga_maf_file, clinicalData = tcga_clin_data)
   }
-  tcga_dataset <- gsub("TCGA-","",tcga_dataset)
-  save_folder=file.path(save_folder,paste0("TCGA_",tcga_dataset),variant_caller)
-  tcga_maf_file=file.path(save_folder,paste0("TCGA_",tcga_dataset,".",variant_caller,".maf"))
   
-  if (!file.exists(tcga_maf_file)) {
-    if(!dir.exists(save_folder)) {dir.create(save_folder, recursive = T)}
-    tcga_maf <- GDCquery_Maf(tcga_dataset, 
-                             pipelines = variant_caller, 
-                             directory = save_folder)
-    tcga_maf$Tumor_Sample_Barcode_original <- tcga_maf$Tumor_Sample_Barcode
-    ### The codes in the MAF are specimen IDs, but clinical data is provided by patient IDs
-    ## The correct solution would be get the biospecimen data and clinical data and link it together to get patient IDs
-    ## But here I'm just chopping the specimen part of the code off
-    tcga_maf$Tumor_Sample_Barcode <-unlist(lapply(strsplit(tcga_maf$Tumor_Sample_Barcode, "-"), function(x) {paste0(x[1:3], collapse="-")}))
-    tcga_maf$caller <- variant_caller
-    write.table(tcga_maf, file=tcga_maf_file, quote=F, sep="\t", row.names = F, col.names = T)
+  if (is.function(progress_func)) {
+    prog=95
+    progress_func(value=prog, detail = paste0("Returning mutations from ", n_requested, " datasets"))
   }
   
-  
-  message("Adding clinical data")
-  tcga_clinical_file=file.path(save_folder,paste0("TCGA_",tcga_dataset,".clinical.txt"))
-  if (! file.exists(tcga_clinical_file)) {
-    if (!dir.exists(dirname(tcga_clinical_file))) {dir.create(dirname(tcga_clinical_file), recursive = T)}
-    tcga_clinical <- GDCquery_clinic(project = paste0("TCGA-",tcga_dataset), type = "clinical")
-    write.table(tcga_clinical, file=tcga_clinical_file, quote=T, sep="\t", row.names = F, col.names = T)
-  }
-  
-  tcga_clin_data <- read.table(tcga_clinical_file, sep="\t",header = T,stringsAsFactors = F)
-  tcga_clin_data$Tumor_Sample_Barcode <- tcga_clin_data$bcr_patient_barcode
-  tcga_maf <- read.maf(tcga_maf_file, clinicalData = tcga_clin_data)
-  
-  # return(list(mafObj=tcga_maf, clindat=tcga_clin_data))
-  return(tcga_maf)
+  mergedmafs <- merge_mafs(allmafs)
+  return(mergedmafs)
   
 }
 

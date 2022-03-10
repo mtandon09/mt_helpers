@@ -1,5 +1,15 @@
 get_sig_genes <- function(limma_df, pval = 0.05, topn = NA, name_with_symbol = FALSE, 
-                          direction = "all", gene_col = 1, fc_col = 2, sig_col = 3) {
+                          direction = "all", gene_col = NULL, fc_col = "logFC", sig_col = "adj.P.Val") {
+  
+  if (is.null(gene_col)) {
+    limma_df <- cbind(rowid=rownames(limma_df), limma_df)
+    gene_col="rowid"
+  }
+  
+  if (! all(c(gene_col, fc_col, sig_col) %in% colnames(limma_df))){
+    stop("Couldn't find columns named: ", paste0(setdiff(c(gene_col, fc_col, sig_col), colnames(limma_df)), collapse=","))
+  }
+  
   limma_df <- limma_df[order(limma_df[,sig_col]), ]
   # browser()
   if (name_with_symbol) {
@@ -9,11 +19,13 @@ get_sig_genes <- function(limma_df, pval = 0.05, topn = NA, name_with_symbol = F
     limma_df <- limma_df[limma_df[, fc_col] > 0, ]
   } else if (direction == "down") {
     limma_df <- limma_df[limma_df[, fc_col] < 0, ]
-  } else if (direction == "all") {
-    
+  } else if (direction %in% c("all","any")) {
+    # limma_df <- limma_df
   } else {
     stop("Unknown 'direction' supplied.")
   }
+  # browser()
+  limma_df <- limma_df[order(limma_df[,sig_col], decreasing = F), ]
   
   return_vector <- as.vector(limma_df[limma_df[,sig_col] < pval, fc_col])
   names(return_vector) <- limma_df[limma_df[,sig_col] < pval, gene_col]

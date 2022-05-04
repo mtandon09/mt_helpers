@@ -227,7 +227,10 @@ makeVolcano <- function(myresults,labelTop=TRUE,nLabel=20,pval_cutoff = 0.05, pv
 makePCAplot_MT <- function(expr_vals,pheno.data=NULL,topNgenes=NULL, sampleLabel = FALSE, labelColumn=NULL,
                            biplot=FALSE, n_loadings=10,
                            make_plotly = F,
-                           whichPCs=c(1,2),fillVar=NULL, shapeVar=NULL, fillColors=NULL, 
+                           whichPCs=c(1,2),
+                           pointsize=6, auto_adjust_pointsize=T, bordersize=2,
+                           fillVar=NULL, fillColors=NULL, 
+                           shapeVar=NULL, shapeVals=NULL, 
                            drawEllipses=FALSE,saveplot=FALSE,savefilename,savedata=FALSE) {
   require(ggplot2)
   require(RColorBrewer)
@@ -273,9 +276,9 @@ makePCAplot_MT <- function(expr_vals,pheno.data=NULL,topNgenes=NULL, sampleLabel
       
     } else {
       numgroups <- length(unique(colordata))
-      if (numgroups < 9) {
+      if (numgroups < 13) {
         colorpalette <- "Paired"
-        fillColors <- colorRampPalette(brewer.pal(numgroups,colorpalette))(numgroups)
+        fillColors <- brewer.pal(12,colorpalette)[1:numgroups]
       } else {
         fillColors <- rainbow(numgroups)
       }
@@ -290,8 +293,13 @@ makePCAplot_MT <- function(expr_vals,pheno.data=NULL,topNgenes=NULL, sampleLabel
   } else {
     pheno.data$shapeVar = pheno.data[,shapeVar]
   }
-  shapeVals=c(0:14)[1:length(unique(pheno.data$shapeVar))]
-  names(shapeVals) <- sort(unique(pheno.data$shapeVar))
+  if (missing(shapeVals) || is.null(shapeVals)) {
+    # shapeVals=c(0:14)[1:length(unique(pheno.data$shapeVar))]
+    shapeVals=c(21:26)[1:length(unique(pheno.data$shapeVar))]
+  }
+  if (is.null(names(shapeVals))) {
+    names(shapeVals) <- sort(unique(pheno.data$shapeVar))
+  }
   
   if (missing(labelColumn) || is.null(labelColumn)) {
     pheno.data$sample_id <- rownames(pheno.data)
@@ -368,14 +376,15 @@ makePCAplot_MT <- function(expr_vals,pheno.data=NULL,topNgenes=NULL, sampleLabel
   plotdata <- data.frame(cbind(pca$x[,whichPCs],gr))
   colnames(plotdata)[1:2] <- paste0("PC",whichPCs)
   
-  npoints <- nrow(plotdata)
-  pointsize=6
-  pointsize <- ifelse(npoints > 1e4, 0.5,
-                      ifelse(npoints > 1000, 1, 
-                             ifelse(npoints > 100, 2, 
-                                    ifelse(npoints > 10, 4, pointsize))))
-  pcaplot <- ggplot(plotdata, aes_string(x = paste0("PC",whichPCs[1]), y = paste0("PC",whichPCs[2]), color = fillVar)) +
-    geom_point(aes_string(shape=shapeVar),size = pointsize, alpha=0.6, stroke = 2) + 
+  if (auto_adjust_pointsize) {
+    npoints <- nrow(plotdata)
+    pointsize <- ifelse(npoints > 1e4, 0.5,
+                        ifelse(npoints > 1000, 1, 
+                               ifelse(npoints > 100, 2, 
+                                      ifelse(npoints > 10, 4, pointsize))))
+  }
+  pcaplot <- ggplot(plotdata, aes_string(x = paste0("PC",whichPCs[1]), y = paste0("PC",whichPCs[2]))) +
+    geom_point(aes_string(shape=shapeVar, fill = fillVar),color="grey10",size = pointsize, alpha=0.6, stroke = bordersize) + 
     # guides(color = guide_legend(override.aes = list(size=3, alpha=1, shape=15))) +
     # scale_color_brewer(palette = "Paired") +
     # scale_color_manual(values = fillColors) +
@@ -386,10 +395,13 @@ makePCAplot_MT <- function(expr_vals,pheno.data=NULL,topNgenes=NULL, sampleLabel
     theme_linedraw(base_size = 14)
   
   if (continuous_color) {
-    pcaplot <- pcaplot + scale_color_gradient(low=fillColors[1], high=fillColors[2])
+    # pcaplot <- pcaplot + scale_color_gradient(low=fillColors[1], high=fillColors[2])
+    pcaplot <- pcaplot + scale_fill_gradient(low=fillColors[1], high=fillColors[2])
   } else {
-    pcaplot <- pcaplot + scale_color_manual(values = fillColors) +
-      guides(color = guide_legend(override.aes = list(size=3, alpha=1, shape=15)))
+    # pcaplot <- pcaplot + scale_color_manual(values = fillColors) +
+      # guides(color = guide_legend(override.aes = list(size=3, alpha=1, shape=15)))
+    pcaplot <- pcaplot + scale_fill_manual(values = fillColors) +
+      guides(fill = guide_legend(override.aes = list(size=8, alpha=1, shape=22)))
   }
   
   if (sampleLabel && !make_plotly) {
